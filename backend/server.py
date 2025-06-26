@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import health, auth, data
+from app.routes import health, auth, data, income_comparison, transcript_routes
 
 # Configure logging
 logging.basicConfig(
@@ -42,5 +42,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(data.router)
+app.include_router(income_comparison.router)
+app.include_router(transcript_routes.router)
 
 logger.info("🚀 FastAPI server initialized with logging enabled")
