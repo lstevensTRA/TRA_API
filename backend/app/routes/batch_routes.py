@@ -206,6 +206,36 @@ async def batch_case_summary(
         logger.error(f"❌ Error starting batch case summary: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@router.get("/cases/by_status/{status_id}", tags=["Batch Processing"])
+def get_cases_by_status(status_id: int):
+    """
+    Get all case IDs with the given status_id from Logiqs API.
+    """
+    import requests
+    LOGIQS_API_KEY = "4917fa0ce4694529a9b97ead1a60c932"
+    LOGIQS_URL = "https://tps.logiqs.com/publicapi/2020-02-22/cases/GetCasesByStatus"
+    logger.info(f"🔍 Fetching all cases with status_id={status_id} from Logiqs API")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        params = {
+            "apikey": LOGIQS_API_KEY,
+            "StatusID": status_id
+        }
+        response = requests.get(LOGIQS_URL, params=params, timeout=30)
+        if response.status_code != 200:
+            logger.error(f"Logiqs API error: {response.status_code} - {response.text}")
+            raise HTTPException(status_code=response.status_code, detail="Failed to fetch cases from Logiqs")
+        data = response.json()
+        # Expecting a list of cases, each with a CaseID field
+        case_ids = [case["CaseID"] for case in data if "CaseID" in case]
+        logger.info(f"✅ Successfully fetched {len(case_ids)} cases with status_id={status_id}")
+        return {"status_id": status_id, "case_ids": case_ids, "total_cases": len(case_ids)}
+    except Exception as e:
+        logger.error(f"❌ Error fetching cases by status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 async def process_batch_income_comparison(batch_id: str, case_ids: List[str], cookies: dict):
     """
     Process batch income comparison in background.
