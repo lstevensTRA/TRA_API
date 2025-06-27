@@ -171,4 +171,22 @@ def format_percentage(value: float) -> str:
     try:
         return f"{value:.2f}%"
     except (ValueError, TypeError):
-        return "0.00%" 
+        return "0.00%"
+
+def _extract_cookie_header(cookies: dict) -> str:
+    """Extract cookie header string from cookies dict"""
+    if not cookies:
+        return None
+    
+    if isinstance(cookies, dict) and 'cookies' in cookies:
+        return "; ".join([f"{c['name']}={c['value']}" for c in cookies['cookies']])
+    elif isinstance(cookies, str):
+        return cookies
+    
+    return None
+
+def _get_user_agent(cookies: dict) -> str:
+    """Extract user agent from cookies dict"""
+    if cookies and isinstance(cookies, dict) and 'user_agent' in cookies:
+        return cookies['user_agent']
+    return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' 
