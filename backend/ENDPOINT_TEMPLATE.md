@@ -29,9 +29,11 @@ from ..utils.cookies import get_cookies
 - Return 400 errors for invalid inputs
 
 ### ✅ **Response Models**
+- **REQUIRED:** Every endpoint must use an explicit Pydantic `response_model` (e.g. `response_model=SuccessResponse` or a custom model)
 - Use `SuccessResponse` for successful operations
 - Use `ErrorResponse` for errors
 - Create specific Pydantic models for complex responses
+- Even test/status endpoints must use a response_model for OpenAPI consistency
 
 ### ✅ **Error Handling**
 - Catch specific exceptions
@@ -50,6 +52,7 @@ from ..utils.cookies import get_cookies
 
 router = APIRouter(tags=["Your Tag"])
 
+# NOTE: Always specify response_model for every endpoint
 @router.get("/your-endpoint/{case_id}", response_model=SuccessResponse)
 @require_auth
 async def your_endpoint(case_id: str, optional_param: Optional[str] = None):
@@ -171,11 +174,14 @@ class YourResponseModel(BaseModel):
     metadata: Dict[str, Any]
 
 # Use in endpoint
-return YourResponseModel(
-    case_id=case_id,
-    data=processed_data,
-    metadata={"processed_at": datetime.now().isoformat()}
-)
+@router.get("/your-complex-endpoint/{case_id}", response_model=YourResponseModel)
+def your_complex_endpoint(...):
+    ...
+    return YourResponseModel(
+        case_id=case_id,
+        data=processed_data,
+        metadata={"processed_at": datetime.now().isoformat()}
+    )
 ```
 
 ### **Error Response**
