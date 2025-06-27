@@ -719,4 +719,46 @@ class DisposableIncomeResponse(BaseModel):
                 }
             }
         }
-    } 
+    }
+
+class AllTranscriptsResponse(BaseModel):
+    case_id: str
+    wi_transcripts: Optional[WITranscriptResponse] = None
+    at_transcripts: Optional[ATTranscriptResponse] = None
+
+class SMSLog(BaseModel):
+    CaseID: int
+    SMSLogID: int
+    MsgDirection: str
+    MsgDateSent: str
+    FormattedMsgDateSent: str
+    MsgBody: str
+    ClientName: str
+    UserName: str
+    MsgStatus: int
+    MsgStatusName: str
+
+class SMSLogsResponse(BaseModel):
+    case_id: int
+    logs: List[SMSLog]
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "case_id": 1124144,
+                "logs": [
+                    {
+                        "CaseID": 1124144,
+                        "SMSLogID": 3375862,
+                        "MsgDirection": "outbound-api",
+                        "MsgDateSent": "2025-05-09T11:01:00.957",
+                        "FormattedMsgDateSent": "5/9/2025 11:01 AM",
+                        "MsgBody": "https://esignapi.com/auth.html?guid=_HfHmMaCjU6s13vXckx69g . Reply STOP to unsubscribe",
+                        "ClientName": "Arlys Kuehn",
+                        "UserName": "Steve Baker",
+                        "MsgStatus": 1,
+                        "MsgStatusName": "Sent"
+                    }
+                ]
+            }
+        } 
