@@ -16,6 +16,7 @@ import io
 import httpx
 import json
 import time
+from app.models.response_models import WITranscriptResponse, ATTranscriptResponse
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -364,13 +365,15 @@ def parse_at_file(case_id: str, case_document_id: str):
 
 # --- Multi-File Transcript Endpoints ---
 
-@router.get("/transcripts/wi/{case_id}", tags=["Transcripts"])
-def get_wi_transcripts(case_id: str):
+@router.get("/wi/{case_id}", tags=["Transcripts"], 
+           summary="Get WI Transcript Files",
+           description="Get list of WI transcript files available for a case.",
+           response_model=WITranscriptResponse)
+def get_wi_transcript_files(case_id: str):
     """
-    Get all WI transcripts for a case.
-    Returns a list of parsed WI transcript data.
+    Get list of WI transcript files available for a case.
     """
-    logger.info(f"🔍 Received WI transcripts request for case_id: {case_id}")
+    logger.info(f"🔍 Received WI transcript files request for case_id: {case_id}")
     
     # Check authentication
     if not cookies_exist():
@@ -380,51 +383,53 @@ def get_wi_transcripts(case_id: str):
     cookies = get_cookies()
     
     try:
-        # Fetch WI files
+        # Fetch WI file grid
+        logger.info(f"📋 Fetching WI file grid for case_id: {case_id}")
         wi_files = fetch_wi_file_grid(case_id, cookies)
+        
         if not wi_files:
+            logger.warning(f"⚠️ No WI files found for case_id: {case_id}")
             raise HTTPException(status_code=404, detail="No WI files found for this case.")
         
-        # Parse each file
-        transcripts = []
-        for file_info in wi_files:
-            try:
-                parsed_data = parse_single_wi_file(
-                    case_id, 
-                    file_info["CaseDocumentID"], 
-                    file_info["FileName"], 
-                    cookies
-                )
-                transcripts.append(parsed_data)
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to parse WI file {file_info['FileName']}: {str(e)}")
-                # Continue with other files
-                continue
+        # Process files
+        processed_files = []
+        for i, wi_file in enumerate(wi_files):
+            filename = wi_file.get('FileName', 'Unknown')
+            owner = TPSParser.extract_owner_from_filename(filename)
+            
+            processed_files.append({
+                "index": i + 1,
+                "filename": filename,
+                "case_document_id": str(wi_file.get('CaseDocumentID', '')),
+                "owner": owner
+            })
+            
+            logger.info(f"   📄 {i+1}. {filename} (Owner: {owner})")
         
-        if not transcripts:
-            raise HTTPException(status_code=500, detail="Failed to parse any WI files.")
+        logger.info(f"✅ Successfully retrieved {len(processed_files)} WI transcript files for case_id: {case_id}")
         
-        logger.info(f"✅ Successfully parsed {len(transcripts)} WI transcripts for case_id: {case_id}")
-        return {
-            "case_id": case_id,
-            "total_files": len(wi_files),
-            "successful_parses": len(transcripts),
-            "transcripts": transcripts
-        }
+        return WITranscriptResponse(
+            case_id=case_id,
+            transcript_type="WI",
+            total_files=len(processed_files),
+            files=processed_files
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting WI transcripts for case_id {case_id}: {str(e)}")
+        logger.error(f"❌ Error getting WI transcript files for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/transcripts/at/{case_id}", tags=["Transcripts"])
-def get_at_transcripts(case_id: str):
+@router.get("/at/{case_id}", tags=["Transcripts"], 
+           summary="Get AT Transcript Files",
+           description="Get list of AT transcript files available for a case.",
+           response_model=ATTranscriptResponse)
+def get_at_transcript_files(case_id: str):
     """
-    Get all AT transcripts for a case.
-    Returns a list of parsed AT transcript data.
+    Get list of AT transcript files available for a case.
     """
-    logger.info(f"🔍 Received AT transcripts request for case_id: {case_id}")
+    logger.info(f"🔍 Received AT transcript files request for case_id: {case_id}")
     
     # Check authentication
     if not cookies_exist():
@@ -434,42 +439,42 @@ def get_at_transcripts(case_id: str):
     cookies = get_cookies()
     
     try:
-        # Fetch AT files
+        # Fetch AT file grid
+        logger.info(f"📋 Fetching AT file grid for case_id: {case_id}")
         at_files = fetch_at_file_grid(case_id, cookies)
+        
         if not at_files:
+            logger.warning(f"⚠️ No AT files found for case_id: {case_id}")
             raise HTTPException(status_code=404, detail="No AT files found for this case.")
         
-        # Parse each file
-        transcripts = []
-        for file_info in at_files:
-            try:
-                parsed_data = parse_single_at_file(
-                    case_id, 
-                    file_info["CaseDocumentID"], 
-                    file_info["FileName"], 
-                    cookies
-                )
-                transcripts.append(parsed_data)
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to parse AT file {file_info['FileName']}: {str(e)}")
-                # Continue with other files
-                continue
+        # Process files
+        processed_files = []
+        for i, at_file in enumerate(at_files):
+            filename = at_file.get('FileName', 'Unknown')
+            owner = TPSParser.extract_owner_from_filename(filename)
+            
+            processed_files.append({
+                "index": i + 1,
+                "filename": filename,
+                "case_document_id": str(at_file.get('CaseDocumentID', '')),
+                "owner": owner
+            })
+            
+            logger.info(f"   📄 {i+1}. {filename} (Owner: {owner})")
         
-        if not transcripts:
-            raise HTTPException(status_code=500, detail="Failed to parse any AT files.")
+        logger.info(f"✅ Successfully retrieved {len(processed_files)} AT transcript files for case_id: {case_id}")
         
-        logger.info(f"✅ Successfully parsed {len(transcripts)} AT transcripts for case_id: {case_id}")
-        return {
-            "case_id": case_id,
-            "total_files": len(at_files),
-            "successful_parses": len(transcripts),
-            "transcripts": transcripts
-        }
+        return ATTranscriptResponse(
+            case_id=case_id,
+            transcript_type="AT",
+            total_files=len(processed_files),
+            files=processed_files
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting AT transcripts for case_id {case_id}: {str(e)}")
+        logger.error(f"❌ Error getting AT transcript files for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/transcripts/{case_id}", tags=["Transcripts"])
@@ -491,7 +496,7 @@ def get_all_transcripts(case_id: str):
         # Get WI transcripts
         wi_result = None
         try:
-            wi_result = get_wi_transcripts(case_id)
+            wi_result = get_wi_transcript_files(case_id)
         except HTTPException as e:
             if e.status_code == 404:
                 logger.info(f"ℹ️ No WI transcripts found for case_id: {case_id}")
@@ -501,7 +506,7 @@ def get_all_transcripts(case_id: str):
         # Get AT transcripts
         at_result = None
         try:
-            at_result = get_at_transcripts(case_id)
+            at_result = get_at_transcript_files(case_id)
         except HTTPException as e:
             if e.status_code == 404:
                 logger.info(f"ℹ️ No AT transcripts found for case_id: {case_id}")

@@ -1,7 +1,8 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import health, auth, data, income_comparison, transcript_routes
+import uvicorn
+from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes
 
 # Configure logging
 logging.basicConfig(
@@ -16,7 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Case Management API Backend",
+    title="TRA API Backend",
+    description="Tax Resolution Associates API Backend",
     version="1.0.0",
     openapi_tags=[
         {"name": "Auth", "description": "Authentication and session management endpoints."},
@@ -25,7 +27,14 @@ app = FastAPI(
         {"name": "Billing", "description": "(Coming soon) Invoice, payment, and billing endpoints."},
         {"name": "SMS Logs", "description": "(Coming soon) SMS log and notification endpoints."},
         {"name": "Info", "description": "API metadata and discovery endpoints."},
-        {"name": "Health", "description": "Health check endpoints."}
+        {"name": "Health", "description": "Health check endpoints."},
+        {"name": "Case Management", "description": "Endpoints for case management."},
+        {"name": "Tax Investigation", "description": "Endpoints for tax investigation."},
+        {"name": "Closing Letters", "description": "Endpoints for closing letters."},
+        {"name": "Batch Processing", "description": "Endpoints for batch processing."},
+        {"name": "Client Profile", "description": "Endpoints for client profile management."},
+        {"name": "IRS Standards", "description": "Endpoints for IRS Standards and county data."},
+        {"name": "Disposable Income", "description": "Endpoints for disposable income calculations."}
     ]
 )
 
@@ -38,11 +47,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(data.router)
-app.include_router(income_comparison.router)
-app.include_router(transcript_routes.router)
+# Include routers with clean prefixes
+app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+app.include_router(health.router, prefix="/health", tags=["Health"])
+app.include_router(income_comparison.router, prefix="/income-comparison", tags=["Income Comparison"])
+app.include_router(transcript_routes.router, prefix="/transcripts", tags=["Transcripts"])
+app.include_router(analysis_routes.router, prefix="/analysis", tags=["Analysis"])
+app.include_router(case_management_routes.router, prefix="/case-management", tags=["Case Management"])
+app.include_router(tax_investigation_routes_new.router, prefix="/tax-investigation", tags=["Tax Investigation"])
+app.include_router(closing_letters_routes.router, prefix="/closing-letters", tags=["Closing Letters"])
+app.include_router(batch_routes.router, prefix="/batch", tags=["Batch Processing"])
+app.include_router(client_profile.router, prefix="/client_profile", tags=["Client Profile"])
+app.include_router(irs_standards_routes.router, prefix="/irs-standards", tags=["IRS Standards"])
+app.include_router(disposable_income_routes.router, prefix="/disposable-income", tags=["Disposable Income"])
+app.include_router(test_routes.router, prefix="/test", tags=["Test"])
+
+@app.get("/")
+async def root():
+    return {"message": "TRA API Backend is running", "version": "1.0.0"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 logger.info("🚀 FastAPI server initialized with logging enabled")

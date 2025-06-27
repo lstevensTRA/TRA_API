@@ -7,6 +7,49 @@ from typing import Dict, Any
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
+def extract_client_info(case_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract client information from case data.
+    This is the main function used by other modules.
+    """
+    logger.info("🔍 Extracting client info from case data")
+    
+    try:
+        client_info = {
+            "name": case_data.get("ClientName", "N/A"),
+            "annual_income": case_data.get("AnnualIncome", 0),
+            "employer": case_data.get("Employer", "N/A"),
+            "case_id": case_data.get("CaseID", ""),
+            "ssn": case_data.get("SSN", ""),
+            "address": case_data.get("Address", ""),
+            "phone": case_data.get("Phone", ""),
+            "email": case_data.get("Email", ""),
+            "marital_status": case_data.get("MaritalStatus", ""),
+            "filing_status": case_data.get("FilingStatus", ""),
+            "total_liability": case_data.get("TotalLiability", 0),
+            "years_owed": case_data.get("YearsOwed", []),
+            "unfiled_years": case_data.get("UnfiledYears", []),
+            "status": case_data.get("Status", ""),
+            "resolution_type": case_data.get("ResolutionType", ""),
+            "resolution_amount": case_data.get("ResolutionAmount", 0),
+            "payment_terms": case_data.get("PaymentTerms", ""),
+            "created_date": case_data.get("CreatedDate", ""),
+            "modified_date": case_data.get("ModifiedDate", "")
+        }
+        
+        logger.info(f"✅ Successfully extracted client info for case {client_info['case_id']}")
+        return client_info
+        
+    except Exception as e:
+        logger.error(f"❌ Error extracting client info: {str(e)}")
+        return {
+            "name": "Error",
+            "annual_income": 0,
+            "employer": "Error",
+            "case_id": "",
+            "error": str(e)
+        }
+
 def extract_client_info_from_logiqs(case_id: str, cookies: dict) -> dict:
     """
     Extract client information from Logiqs case page.
