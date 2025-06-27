@@ -21,7 +21,7 @@ from ..utils.cookies import get_cookies
 ### ✅ **Logging**
 - Use `log_endpoint_call()` at the start
 - Use `log_success()` for successful operations
-- Use `log_error()` for all errors
+- Use `log_error()` for error handling
 
 ### ✅ **Input Validation**
 - Validate case IDs with `validate_case_id()`
@@ -29,16 +29,33 @@ from ..utils.cookies import get_cookies
 - Return 400 errors for invalid inputs
 
 ### ✅ **Response Models**
-- **REQUIRED:** Every endpoint must use an explicit Pydantic `response_model` (e.g. `response_model=SuccessResponse` or a custom model)
-- Use `SuccessResponse` for successful operations
-- Use `ErrorResponse` for errors
-- Create specific Pydantic models for complex responses
-- Even test/status endpoints must use a response_model for OpenAPI consistency
+- Always specify `response_model` for every endpoint
+- Use Pydantic models from `response_models.py`
+- Include proper validation and documentation
 
 ### ✅ **Error Handling**
-- Catch specific exceptions
-- Use standardized error messages
-- Return appropriate HTTP status codes
+- Use `HTTPException` with appropriate status codes
+- Provide meaningful error messages
+- Log all errors with context
+
+### ✅ **Documentation**
+- Add `summary` and `description` to all endpoints
+- Use proper tags for API organization
+- Include example responses in models
+
+### ✅ **Frontend Synchronization** ⭐ **NEW**
+- **MANDATORY**: Add new endpoint to frontend UI in `backend/frontend-testing-tool/src/App.js`
+- Update `endpointConfig` object with new endpoint details
+- Test endpoint through frontend UI before committing
+- Follow this format:
+```javascript
+{ path: '/your-endpoint/{case_id}', method: 'GET', name: 'Your Endpoint Name' }
+```
+
+### ✅ **Testing**
+- Test endpoint with real case IDs
+- Verify response format matches model
+- Check error handling scenarios
 
 ## 📝 **Standard Endpoint Template**
 
@@ -313,6 +330,41 @@ async def your_endpoint(case_id: str):
     except Exception as e:
         log_error("your_endpoint", e, case_id)
         raise HTTPException(status_code=500, detail=str(e))
+```
+
+## 📋 **Pre-Commit Checklist**
+
+Before committing any new endpoint, ensure:
+
+- [ ] Endpoint follows all template standards above
+- [ ] Response model is properly defined and used
+- [ ] Error handling is comprehensive
+- [ ] Logging is implemented
+- [ ] Documentation is complete
+- [ ] **FRONTEND**: Endpoint added to `backend/frontend-testing-tool/src/App.js`
+- [ ] **FRONTEND**: Endpoint tested through frontend UI
+- [ ] **FRONTEND**: Endpoint appears in correct category in UI
+- [ ] All tests pass
+- [ ] Code is formatted and linted
+
+## 🔄 **Frontend Synchronization Process**
+
+1. **Create Backend Endpoint** → Follow template above
+2. **Add to Frontend** → Update `endpointConfig` in `App.js`
+3. **Test Integration** → Use frontend UI to test endpoint
+4. **Commit Both** → Backend and frontend changes together
+5. **Verify** → Check that endpoint appears in frontend UI
+
+**Example Frontend Addition:**
+```javascript
+// In backend/frontend-testing-tool/src/App.js
+caseManagement: {
+  name: 'Case Management',
+  endpoints: [
+    // ... existing endpoints ...
+    { path: '/case-management/sms-logs/{case_id}', method: 'GET', name: 'Get SMS Logs' }
+  ]
+}
 ```
 
 ---

@@ -122,7 +122,8 @@ const App = () => {
     caseManagement: {
       name: 'Case Management',
       endpoints: [
-        { path: '/case-management/caseactivities/{case_id}', method: 'GET', name: 'Get Case Activities' }
+        { path: '/case-management/caseactivities/{case_id}', method: 'GET', name: 'Get Case Activities' },
+        { path: '/case-management/sms-logs/{case_id}', method: 'GET', name: 'Get SMS Logs' }
       ]
     },
     irsStandards: {
