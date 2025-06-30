@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 const App = () => {
-  const [serverUrl, setServerUrl] = useState('http://localhost:8000');
+  const [serverUrl, setServerUrl] = useState('https://tra-api-backend.onrender.com');
   const [caseIds, setCaseIds] = useState('54820');
   const [selectedEndpoints, setSelectedEndpoints] = useState({
     auth: true,
@@ -460,7 +460,7 @@ ${results.filter(r => !r.success).map(r => `❌ ${r.endpoint} (${r.caseId}): ${r
           >
             <option value="http://localhost:8000">localhost:8000</option>
             <option value="http://localhost:3000">localhost:3000</option>
-            <option value="https://api.tra.com">Production</option>
+            <option value="https://tra-api-backend.onrender.com">Production</option>
           </select>
         </div>
 
