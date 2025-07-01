@@ -16,7 +16,7 @@ import io
 import httpx
 import json
 import time
-from app.models.response_models import WITranscriptResponse, ATTranscriptResponse
+from app.models.response_models import WITranscriptResponse, ATTranscriptResponse, SuccessResponse, AllTranscriptsResponse
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -28,12 +28,12 @@ LOGIQS_DOWNLOAD_URL = "https://tps.logiqs.com/API/Document/DownloadFile?CaseDocu
 router = APIRouter()
 
 # Placeholder for transcript routes
-@router.get("/transcript-test/{case_id}", tags=["Transcripts"])
+@router.get("/transcript-test/{case_id}", tags=["Transcripts"], response_model=SuccessResponse)
 def test_transcript_endpoint(case_id: str):
     """
     Test endpoint for transcript routes.
     """
-    return {"message": "Transcript routes module loaded", "case_id": case_id}
+    return SuccessResponse(message="Transcript routes module loaded", status="success", data={"case_id": case_id})
 
 @router.get("/raw/wi/{case_id}", tags=["Transcripts"])
 def get_raw_wi_data(
@@ -477,7 +477,7 @@ def get_at_transcript_files(case_id: str):
         logger.error(f"❌ Error getting AT transcript files for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/transcripts/{case_id}", tags=["Transcripts"])
+@router.get("/transcripts/{case_id}", tags=["Transcripts"], response_model=AllTranscriptsResponse)
 def get_all_transcripts(case_id: str):
     """
     Get all WI and AT transcripts for a case.

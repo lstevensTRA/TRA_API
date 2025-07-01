@@ -3,21 +3,22 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List
 from app.utils.cookies import cookies_exist, get_cookies
 from app.utils.client_info import extract_client_info_from_logiqs
-from app.models.response_models import TaxInvestigationCompareResponse, TaxInvestigationClientInfo
+from app.models.response_models import TaxInvestigationCompareResponse, TaxInvestigationClientInfo, SuccessResponse
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/test", tags=["Tax Investigation"])
+@router.get("/test", tags=["Tax Investigation"], response_model=SuccessResponse)
 def test_tax_investigation_router():
     """Test route to verify the router is working."""
-    return {"message": "Tax Investigation router is working!"}
+    return SuccessResponse(message="Tax Investigation router is working!", status="success", data=None)
 
 @router.get("/client/{case_id}", tags=["Tax Investigation"], 
            summary="Get Tax Investigation Client Info",
-           description="Get tax investigation client information for a specific case.")
+           description="Get tax investigation client information for a specific case.",
+           response_model=TaxInvestigationClientInfo)
 def get_tax_investigation_client(case_id: str):
     """
     Get tax investigation client information for a specific case.

@@ -12,7 +12,8 @@ router = APIRouter()
 
 @router.get("/client-info/{case_id}", tags=["Tax Investigation"], 
            summary="Get Tax Investigation Client Info",
-           description="Get tax investigation client information for a specific case.")
+           description="Get tax investigation client information for a specific case.",
+           response_model=TaxInvestigationClientInfo)
 def get_tax_investigation_client(case_id: str):
     """
     Get tax investigation client information for a specific case.

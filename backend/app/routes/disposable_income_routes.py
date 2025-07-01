@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 import logging
 import httpx
-from ..models.response_models import DisposableIncomeResponse, ErrorResponse
+from ..models.response_models import DisposableIncomeResponse, ErrorResponse, SuccessResponse
 from ..utils.cookies import cookies_exist, get_cookies
 from ..utils.common import require_auth, log_endpoint_call, log_success, log_error, validate_case_id
 from ..routes.client_profile import get_client_profile_internal
@@ -11,7 +11,7 @@ from datetime import datetime
 
 router = APIRouter(tags=["Disposable Income"])
 
-@router.get("/test")
+@router.get("/test", response_model=SuccessResponse)
 async def test_disposable_income():
     """Test endpoint to verify the disposable income router is working."""
     return {"message": "Disposable income router is working!"}

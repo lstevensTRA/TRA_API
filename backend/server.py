@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes
+from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes
 
 # Configure logging
 logging.basicConfig(
@@ -34,7 +34,8 @@ app = FastAPI(
         {"name": "Batch Processing", "description": "Endpoints for batch processing."},
         {"name": "Client Profile", "description": "Endpoints for client profile management."},
         {"name": "IRS Standards", "description": "Endpoints for IRS Standards and county data."},
-        {"name": "Disposable Income", "description": "Endpoints for disposable income calculations."}
+        {"name": "Disposable Income", "description": "Endpoints for disposable income calculations."},
+        {"name": "Pattern Learning", "description": "ML-enhanced pattern learning and user feedback endpoints."}
     ]
 )
 
@@ -61,6 +62,8 @@ app.include_router(client_profile.router, prefix="/client_profile", tags=["Clien
 app.include_router(irs_standards_routes.router, prefix="/irs-standards", tags=["IRS Standards"])
 app.include_router(disposable_income_routes.router, prefix="/disposable-income", tags=["Disposable Income"])
 app.include_router(test_routes.router, prefix="/test", tags=["Test"])
+app.include_router(pattern_learning_routes.router, prefix="/pattern-learning", tags=["Pattern Learning"])
+app.include_router(enhanced_analysis_routes.router, prefix="/analysis", tags=["Analysis"])
 
 @app.get("/")
 async def root():

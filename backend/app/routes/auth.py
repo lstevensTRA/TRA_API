@@ -45,7 +45,7 @@ async def login(request: LoginRequest):
         log_error("login", e, username=request.username)
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-@router.get("/status", tags=["Auth"])
+@router.get("/status", tags=["Auth"], response_model=SuccessResponse)
 def status():
     """
     Check authentication status.
