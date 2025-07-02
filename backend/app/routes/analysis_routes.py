@@ -94,26 +94,137 @@ def wi_analysis(
             owner = TPSParser.extract_owner_from_filename(filename)
             logger.info(f"   📄 {i+1}. {filename} (ID: {wi_file.get('CaseDocumentID', 'Unknown')}, Owner: {owner})")
         
-        # Parse WI PDFs with optional TP/S analysis
-        logger.info(f"🔍 Starting PDF parsing for {len(wi_files)} WI files")
-        wi_data = parse_wi_pdfs(wi_files, cookies, case_id, include_tps_analysis, filing_status)
+        # Parse WI PDFs with new scoped parsing (default) and optional TP/S analysis
+        logger.info(f"🔍 Starting scoped PDF parsing for {len(wi_files)} WI files")
+        wi_data = parse_wi_pdfs(wi_files, cookies, case_id, include_tps_analysis, filing_status, return_scoped_structure=True)
         
         logger.info(f"✅ Successfully parsed WI data for case_id: {case_id}")
-        logger.info(f"📊 Summary: {wi_data.get('summary', {}).get('total_years', 0)} years, {wi_data.get('summary', {}).get('total_forms', 0)} forms")
         
-        # Convert to response model format and clean data
+        # Process new scoped structure format
         years_data = {}
-        for k, v in wi_data.items():
-            if k.isdigit():
-                # Clean each form in the year data
-                cleaned_forms = []
-                for form in v:
-                    if isinstance(form, dict):
-                        cleaned_form = clean_wi_form_data(form)
-                        cleaned_forms.append(cleaned_form)
-                years_data[k] = cleaned_forms
+        total_forms = 0
+        total_files = len(wi_data) if isinstance(wi_data, list) else 0
         
-        summary = wi_data.get('summary', {})
+        # Group forms by tax year from file metadata
+        for file_result in wi_data:
+            if not isinstance(file_result, dict):
+                continue
+                
+            file_name = file_result.get('file_name', '')
+            tax_year = file_result.get('tax_year')
+            forms = file_result.get('forms', [])
+            
+            logger.info(f"📄 File: {file_name}, Tax Year: {tax_year}, Forms: {len(forms)}")
+            
+            # Extract year from filename if not in metadata
+            if not tax_year:
+                year_match = re.search(r'WI\s+(\d{2})', file_name)
+                if year_match:
+                    year_suffix = year_match.group(1)
+                    if int(year_suffix) <= 50:
+                        tax_year = f"20{year_suffix}"
+                    else:
+                        tax_year = f"19{year_suffix}"
+                else:
+                    year_match = re.search(r"(20\d{2})", file_name)
+                    if year_match:
+                        tax_year = year_match.group(1)
+                    else:
+                        tax_year = "Unknown"
+            
+            # Convert scoped forms to legacy format for compatibility
+            for form in forms:
+                form_type = form.get('form_type', '')
+                fields = form.get('fields', [])
+                
+                # Find canonical form name
+                canonical_form = None
+                for k, v in form_patterns.items():
+                    if re.search(v['pattern'], form_type, re.IGNORECASE):
+                        canonical_form = k
+                        break
+                
+                if not canonical_form:
+                    continue
+                
+                pattern_info = form_patterns[canonical_form]
+                
+                # Convert fields to legacy format
+                fields_data = {}
+                for field in fields:
+                    field_name = field.get('name', '').replace('_', ' ').title()
+                    field_value = field.get('value', '')
+                    
+                    # Try to find original field name
+                    orig_field_name = None
+                    for fname in pattern_info.get('fields', {}).keys():
+                        if fname.lower().replace(' ', '_') == field.get('name', ''):
+                            orig_field_name = fname
+                            break
+                    
+                    if orig_field_name:
+                        # Try to cast to float if not a string field
+                        try:
+                            if orig_field_name in ['Direct Sales Indicator', 'FATCA Filing Requirement', 'Second Notice Indicator']:
+                                fields_data[orig_field_name] = field_value
+                            else:
+                                fields_data[orig_field_name] = float(field_value)
+                        except Exception:
+                            fields_data[orig_field_name] = field_value
+                    else:
+                        fields_data[field_name] = field_value
+                
+                # Calculate income and withholding
+                calc = pattern_info.get('calculation', {})
+                income = 0
+                withholding = 0
+                try:
+                    if 'Income' in calc and callable(calc['Income']):
+                        income = calc['Income'](fields_data)
+                    if 'Withholding' in calc and callable(calc['Withholding']):
+                        withholding = calc['Withholding'](fields_data)
+                except Exception as e:
+                    logger.warning(f"⚠️ Error calculating income/withholding for {canonical_form}: {e}")
+                
+                # Create legacy form format
+                form_dict = {
+                    'Form': canonical_form,
+                    'UniqueID': 'UNKNOWN',  # Would need additional logic to extract
+                    'Label': 'E' if canonical_form == 'W-2' else 'P',
+                    'Income': income,
+                    'Withholding': withholding,
+                    'Category': pattern_info.get('category', ''),
+                    'Fields': fields_data,
+                    'PayerBlurb': '',
+                    'Owner': TPSParser.extract_owner_from_filename(file_name),
+                    'SourceFile': file_name,
+                    'Year': tax_year,
+                    'Name': None,
+                    'SSN': None
+                }
+                
+                if tax_year not in years_data:
+                    years_data[tax_year] = []
+                years_data[tax_year].append(form_dict)
+                total_forms += 1
+        
+        # Create summary
+        summary = {
+            'total_years': len(years_data),
+            'total_forms': total_forms,
+            'total_files': total_files,
+            'by_year': {}
+        }
+        
+        for year, forms in years_data.items():
+            total_income = sum(form.get('Income', 0) for form in forms)
+            total_withholding = sum(form.get('Withholding', 0) for form in forms)
+            summary['by_year'][year] = {
+                'number_of_forms': len(forms),
+                'total_income': total_income,
+                'total_withholding': total_withholding,
+                'estimated_agi': total_income  # Simplified for now
+            }
         
         return WIAnalysisResponse(
             summary=summary,
