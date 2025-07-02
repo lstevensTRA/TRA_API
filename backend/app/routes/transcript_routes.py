@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from typing import Optional, Dict, Any, List
 from app.utils.cookies import cookies_exist, get_cookies
-from app.services.wi_service import fetch_wi_file_grid, parse_wi_pdfs, download_wi_pdf, fetch_ti_file_grid
+from app.services.wi_service import fetch_wi_file_grid, parse_wi_pdfs, download_wi_pdf, fetch_ti_file_grid, download_ti_pdf, parse_ti_pdfs
 from app.services.at_service import fetch_at_file_grid, parse_at_pdfs, download_at_pdf
 from app.utils.tps_parser import TPSParser
 from app.utils.pdf_utils import extract_text_from_pdf
@@ -527,4 +527,114 @@ def get_all_transcripts(case_id: str):
         raise
     except Exception as e:
         logger.error(f"❌ Error getting all transcripts for case_id {case_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/ti/{case_id}", tags=["Transcripts"], summary="Get TI File Grid", description="Get list of TI files available for a case.")
+def get_ti_file_grid(case_id: str):
+    logger.info(f"🔍 Received TI file grid request for case_id: {case_id}")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    cookies = get_cookies()
+    try:
+        ti_files = fetch_ti_file_grid(case_id, cookies)
+        if not ti_files:
+            raise HTTPException(status_code=404, detail="No TI files found for this case.")
+        processed_files = []
+        for i, ti_file in enumerate(ti_files):
+            filename = ti_file.get('FileName', 'Unknown')
+            processed_files.append({
+                "index": i + 1,
+                "filename": filename,
+                "case_document_id": str(ti_file.get('CaseDocumentID', '')),
+                "file_comment": ti_file.get('FileComment', '')
+            })
+        logger.info(f"✅ Successfully retrieved {len(processed_files)} TI files for case_id: {case_id}")
+        return {"case_id": case_id, "total_files": len(processed_files), "files": processed_files}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting TI file grid for case_id {case_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/download/ti/{case_id}/{case_document_id}", tags=["Transcripts"])
+def download_ti_file_route(case_id: str, case_document_id: str):
+    logger.info(f"📥 Downloading TI file - case_id: {case_id}, case_document_id: {case_document_id}")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    cookies = get_cookies()
+    try:
+        pdf_bytes = download_ti_pdf(case_document_id, case_id, cookies)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="PDF file not found or empty")
+        logger.info(f"✅ Successfully downloaded TI file. Size: {len(pdf_bytes)} bytes")
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=TI_{case_id}_{case_document_id}.pdf"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error downloading TI file for case_id {case_id}, case_document_id {case_document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/parse/ti/{case_id}/{case_document_id}", tags=["Transcripts"])
+def parse_ti_file(case_id: str, case_document_id: str):
+    logger.info(f"🔍 Parsing TI file - case_id: {case_id}, case_document_id: {case_document_id}")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    cookies = get_cookies()
+    try:
+        ti_files = fetch_ti_file_grid(case_id, cookies)
+        if not ti_files:
+            raise HTTPException(status_code=404, detail="No TI files found for this case.")
+        target_file = None
+        for file_info in ti_files:
+            if file_info.get("CaseDocumentID") == case_document_id:
+                target_file = file_info
+                break
+        if not target_file:
+            raise HTTPException(status_code=404, detail="File not found with the specified CaseDocumentID.")
+        pdf_bytes = download_ti_pdf(case_document_id, case_id, cookies)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="PDF file not found or empty")
+        from app.utils.pdf_utils import extract_text_from_pdf
+        text_content = extract_text_from_pdf(pdf_bytes)
+        if not text_content:
+            raise HTTPException(status_code=500, detail="Could not extract text from PDF.")
+        return {
+            "case_id": case_id,
+            "case_document_id": case_document_id,
+            "filename": target_file["FileName"],
+            "text": text_content
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error parsing TI file for case_id {case_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/raw/ti/{case_id}", tags=["Transcripts"])
+def get_raw_ti_data(case_id: str):
+    logger.info(f"🔍 Received raw TI data request for case_id: {case_id}")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    cookies = get_cookies()
+    try:
+        ti_files = fetch_ti_file_grid(case_id, cookies)
+        if not ti_files:
+            raise HTTPException(status_code=404, detail="404: No TI files found for this case.")
+        ti_data = parse_ti_pdfs(ti_files, cookies, case_id)
+        logger.info(f"✅ Successfully returned raw TI data for case_id: {case_id}")
+        return ti_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting raw TI data for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 

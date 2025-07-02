@@ -16,9 +16,9 @@ from app.services.wi_service_enhanced import (
     get_pattern_learning_statistics, get_pattern_suggestions, 
     implement_pattern_suggestion, provide_extraction_feedback
 )
+from app.models.response_models import SuccessResponse
 from app.models.pattern_learning_models import (
-    PatternLearningResponse, FeedbackRequest, PatternEnhancementRequest,
-    PatternLearningStats, PatternType, SuccessResponse
+    PatternLearningResponse, FeedbackRequest, PatternLearningStats, PatternType
 )
 
 logger = logging.getLogger(__name__)

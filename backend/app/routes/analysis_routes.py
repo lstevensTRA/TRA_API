@@ -395,22 +395,76 @@ def pricing_model(
     return {"message": "Pricing model endpoint - to be implemented"}
 
 @router.post("/batch/wi-structured", tags=["Analysis"], summary="Batch get structured WI data", description="Get structured WI data for multiple case IDs at once.")
-def batch_wi_structured(case_ids: list = Body(..., embed=True)):
+def batch_wi_structured(
+    case_ids: list = Body(..., embed=True),
+    use_scoped_parsing: bool = Query(False, description="Use scoped parsing (new format) instead of legacy format")
+):
     """
     Batch endpoint to get structured WI data for multiple case IDs.
     Input: {"case_ids": ["caseid1", "caseid2", ...]}
     Output: {"caseid1": {...}, "caseid2": {...}, ...}
+    
+    If use_scoped_parsing=True, returns the new scoped parsing format with:
+    - File-level metadata
+    - Form-specific blocks
+    - Source line numbers
+    - Confidence scoring
     """
+    logger.info(f"🔍 Batch WI structured request for {len(case_ids)} cases, use_scoped_parsing: {use_scoped_parsing}")
+    
     results = {}
     for case_id in case_ids:
         try:
-            results[case_id] = wi_analysis(case_id)
+            if use_scoped_parsing:
+                # Use new scoped parsing
+                from app.services.wi_service import fetch_wi_file_grid, download_wi_pdf, parse_transcript_scoped
+                from app.utils.pdf_utils import extract_text_from_pdf
+                from app.utils.cookies import get_cookies
+                
+                cookies = get_cookies()
+                wi_files = fetch_wi_file_grid(case_id, cookies)
+                
+                if not wi_files:
+                    results[case_id] = {"error": "No WI files found"}
+                    continue
+                
+                scoped_results = []
+                for wi_file in wi_files:
+                    try:
+                        file_name = wi_file["FileName"]
+                        case_doc_id = wi_file["CaseDocumentID"]
+                        
+                        # Download and extract text
+                        pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                        if not pdf_bytes:
+                            continue
+                        
+                        text = extract_text_from_pdf(pdf_bytes)
+                        if not text:
+                            continue
+                        
+                        # Use scoped parser
+                        scoped_result = parse_transcript_scoped(text, file_name)
+                        scoped_results.append(scoped_result)
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error processing WI file {file_name}: {str(e)}")
+                        continue
+                
+                results[case_id] = {
+                    "case_id": case_id,
+                    "scoped_results": scoped_results,
+                    "total_files_processed": len(scoped_results)
+                }
+            else:
+                # Use legacy parsing
+                results[case_id] = wi_analysis(case_id)
         except Exception as e:
             results[case_id] = {"error": str(e)}
     return results
 
 @router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases.")
-def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
+async def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
     """
     For each case, fetch raw WI text and structured WI data, compare regex extraction, and suggest improvements.
     Returns a JSON report for frontend review.
@@ -418,7 +472,7 @@ def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
     from app.routes.training_routes import get_raw_text_wi
     results = {}
     # 1. Get all raw text in batch
-    raw_texts = get_raw_text_wi(case_ids)
+    raw_texts = await get_raw_text_wi(case_ids)
     # 2. Get all structured WI data in batch
     batch_structured = batch_wi_structured(case_ids)
     # 3. For each case, compare fields

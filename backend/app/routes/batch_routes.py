@@ -11,6 +11,8 @@ from app.models.response_models import (
     BatchStatusResponse, CompletedCasesResponse, BatchAnalysisResponse, 
     CSVExportResponse, ErrorResponse
 )
+from app.services.wi_service import fetch_wi_file_grid, download_wi_pdf, parse_transcript_scoped
+from app.utils.pdf_utils import extract_text_from_pdf
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -118,12 +120,15 @@ def get_batch_status(batch_id: str):
 async def batch_transcript_analysis(
     case_ids: List[str],
     background_tasks: BackgroundTasks,
-    transcript_types: List[str] = Query(["WI", "AT"], description="Types of transcripts to analyze")
+    transcript_types: List[str] = Query(["WI", "AT"], description="Types of transcripts to analyze"),
+    use_scoped_parsing: bool = Query(False, description="Use scoped parsing for WI transcripts (new format)")
 ):
     """
     Perform transcript analysis on multiple cases in batch.
+    If use_scoped_parsing=True, WI transcripts will use the new scoped parsing system.
     """
     logger.info(f"🔍 Received batch transcript analysis request for {len(case_ids)} cases")
+    logger.info(f"🔍 Use scoped parsing: {use_scoped_parsing}")
     
     if not cookies_exist():
         logger.error("❌ Authentication required - no cookies found")
@@ -139,12 +144,13 @@ async def batch_transcript_analysis(
         batch_id = f"transcript_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Add background task
-        background_tasks.add_task(process_batch_transcript_analysis, batch_id, case_ids, transcript_types, cookies)
+        background_tasks.add_task(process_batch_transcript_analysis, batch_id, case_ids, transcript_types, cookies, use_scoped_parsing)
         
         result = {
             "batch_id": batch_id,
             "total_cases": len(case_ids),
             "transcript_types": transcript_types,
+            "use_scoped_parsing": use_scoped_parsing,
             "status": "processing",
             "message": f"Batch transcript analysis started for {len(case_ids)} cases",
             "started_at": datetime.now().isoformat()
@@ -236,6 +242,120 @@ def get_cases_by_status(status_id: int):
         logger.error(f"❌ Error fetching cases by status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@router.post("/wi-scoped", tags=["Batch Processing"], summary="Batch WI Scoped Parsing")
+async def batch_wi_scoped_parsing(
+    case_ids: List[str],
+    background_tasks: BackgroundTasks,
+    include_confidence: bool = Query(True, description="Include confidence scores in results"),
+    include_source_lines: bool = Query(True, description="Include source line numbers for each field")
+):
+    """
+    Perform scoped WI parsing on multiple cases in batch.
+    Uses the new scoped parsing system that extracts file-level metadata,
+    segments forms into blocks, and applies regexes only within each form block.
+    
+    Returns the new structured format with:
+    - File-level metadata (tracking number, tax year, file name)
+    - Form-specific blocks with isolated field extraction
+    - Source line numbers for each field
+    - Confidence scoring for each extraction
+    """
+    logger.info(f"🔍 Received batch WI scoped parsing request for {len(case_ids)} cases")
+    
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    
+    if len(case_ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 cases allowed per batch request")
+    
+    cookies = get_cookies()
+    
+    try:
+        # Start batch processing in background
+        batch_id = f"wi_scoped_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Add background task
+        background_tasks.add_task(process_batch_wi_scoped_parsing, batch_id, case_ids, cookies, include_confidence, include_source_lines)
+        
+        result = {
+            "batch_id": batch_id,
+            "total_cases": len(case_ids),
+            "include_confidence": include_confidence,
+            "include_source_lines": include_source_lines,
+            "status": "processing",
+            "message": f"Batch WI scoped parsing started for {len(case_ids)} cases",
+            "started_at": datetime.now().isoformat()
+        }
+        
+        logger.info(f"✅ Started batch WI scoped parsing with batch_id: {batch_id}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error starting batch WI scoped parsing: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.post("/wi-scoped-sync", tags=["Batch Processing"], summary="Synchronous Batch WI Scoped Parsing")
+async def batch_wi_scoped_parsing_sync(
+    case_ids: List[str],
+    include_confidence: bool = Query(True, description="Include confidence scores in results"),
+    include_source_lines: bool = Query(True, description="Include source line numbers for each field")
+):
+    """
+    Perform scoped WI parsing on multiple cases synchronously (immediate response).
+    Suitable for smaller batches (up to 10 cases) where immediate results are needed.
+    
+    Uses the new scoped parsing system that extracts file-level metadata,
+    segments forms into blocks, and applies regexes only within each form block.
+    """
+    logger.info(f"🔍 Received synchronous batch WI scoped parsing request for {len(case_ids)} cases")
+    
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    
+    if len(case_ids) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 cases allowed for synchronous processing")
+    
+    cookies = get_cookies()
+    
+    try:
+        results = {}
+        errors = []
+        
+        # Process cases sequentially for synchronous response
+        for case_id in case_ids:
+            try:
+                logger.info(f"🔍 Processing case_id: {case_id}")
+                result = process_single_wi_scoped_parsing(case_id, cookies, include_confidence, include_source_lines)
+                results[case_id] = result
+                logger.info(f"✅ Successfully processed case_id: {case_id}")
+            except Exception as e:
+                error_msg = f"Error processing case {case_id}: {str(e)}"
+                errors.append({"case_id": case_id, "error": error_msg})
+                logger.error(f"❌ {error_msg}")
+                results[case_id] = {"error": error_msg}
+        
+        response = {
+            "total_cases": len(case_ids),
+            "successful_cases": len([r for r in results.values() if "error" not in r]),
+            "failed_cases": len(errors),
+            "include_confidence": include_confidence,
+            "include_source_lines": include_source_lines,
+            "processed_at": datetime.now().isoformat(),
+            "results": results,
+            "errors": errors
+        }
+        
+        logger.info(f"✅ Completed synchronous batch WI scoped parsing for {len(case_ids)} cases")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Error in synchronous batch WI scoped parsing: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 async def process_batch_income_comparison(batch_id: str, case_ids: List[str], cookies: dict):
     """
     Process batch income comparison in background.
@@ -321,7 +441,7 @@ def process_single_income_comparison(case_id: str, cookies: dict) -> Dict[str, A
         logger.error(f"❌ Error processing income comparison for case {case_id}: {str(e)}")
         raise
 
-async def process_batch_transcript_analysis(batch_id: str, case_ids: List[str], transcript_types: List[str], cookies: dict):
+async def process_batch_transcript_analysis(batch_id: str, case_ids: List[str], transcript_types: List[str], cookies: dict, use_scoped_parsing: bool):
     """
     Process batch transcript analysis in background.
     """
@@ -337,7 +457,7 @@ async def process_batch_transcript_analysis(batch_id: str, case_ids: List[str], 
         # Create tasks for each case
         tasks = []
         for case_id in case_ids:
-            task = loop.run_in_executor(executor, process_single_transcript_analysis, case_id, transcript_types, cookies)
+            task = loop.run_in_executor(executor, process_single_transcript_analysis, case_id, transcript_types, cookies, use_scoped_parsing)
             tasks.append(task)
         
         # Wait for all tasks to complete
@@ -364,6 +484,7 @@ async def process_batch_transcript_analysis(batch_id: str, case_ids: List[str], 
         "batch_id": batch_id,
         "total_cases": len(case_ids),
         "transcript_types": transcript_types,
+        "use_scoped_parsing": use_scoped_parsing,
         "successful_cases": len(results),
         "failed_cases": len(errors),
         "results": results,
@@ -374,7 +495,7 @@ async def process_batch_transcript_analysis(batch_id: str, case_ids: List[str], 
     logger.info(f"✅ Completed batch transcript analysis for batch_id: {batch_id}")
     return batch_results
 
-def process_single_transcript_analysis(case_id: str, transcript_types: List[str], cookies: dict) -> Dict[str, Any]:
+def process_single_transcript_analysis(case_id: str, transcript_types: List[str], cookies: dict, use_scoped_parsing: bool) -> Dict[str, Any]:
     """
     Process transcript analysis for a single case.
     """
@@ -382,13 +503,50 @@ def process_single_transcript_analysis(case_id: str, transcript_types: List[str]
         result = {
             "case_id": case_id,
             "transcript_types": transcript_types,
+            "use_scoped_parsing": use_scoped_parsing,
             "analysis": {}
         }
         
         for transcript_type in transcript_types:
             if transcript_type.upper() == "WI":
-                wi_data = fetch_wi_data(case_id, cookies)
-                result["analysis"]["WI"] = analyze_wi_data(wi_data)
+                if use_scoped_parsing:
+                    # Use new scoped parsing
+                    wi_files = fetch_wi_file_grid(case_id, cookies)
+                    if not wi_files:
+                        result["analysis"]["WI"] = {"error": "No WI files found"}
+                        continue
+                    
+                    scoped_results = []
+                    for wi_file in wi_files:
+                        try:
+                            file_name = wi_file["FileName"]
+                            case_doc_id = wi_file["CaseDocumentID"]
+                            
+                            # Download and extract text
+                            pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                            if not pdf_bytes:
+                                continue
+                            
+                            text = extract_text_from_pdf(pdf_bytes)
+                            if not text:
+                                continue
+                            
+                            # Use scoped parser
+                            scoped_result = parse_transcript_scoped(text, file_name)
+                            scoped_results.append(scoped_result)
+                            
+                        except Exception as e:
+                            logger.error(f"❌ Error processing WI file {file_name}: {str(e)}")
+                            continue
+                    
+                    result["analysis"]["WI"] = {
+                        "scoped_results": scoped_results,
+                        "total_files_processed": len(scoped_results)
+                    }
+                else:
+                    # Use legacy parsing
+                    wi_data = fetch_wi_data(case_id, cookies)
+                    result["analysis"]["WI"] = analyze_wi_data(wi_data)
             elif transcript_type.upper() == "AT":
                 at_data = fetch_at_data(case_id, cookies)
                 result["analysis"]["AT"] = analyze_at_data(at_data)
@@ -543,4 +701,157 @@ def fetch_completed_cases(cookies: Dict[str, Any]) -> List[str]:
         return completed_cases
     except Exception as e:
         logger.error(f"❌ Error fetching completed cases: {str(e)}")
-        raise Exception(f"Error fetching completed cases: {str(e)}") 
+        raise Exception(f"Error fetching completed cases: {str(e)}")
+
+async def process_batch_wi_scoped_parsing(batch_id: str, case_ids: List[str], cookies: dict, include_confidence: bool, include_source_lines: bool):
+    """
+    Process batch WI scoped parsing in background.
+    """
+    logger.info(f"🔄 Starting batch WI scoped parsing processing for batch_id: {batch_id}")
+    
+    results = []
+    errors = []
+    
+    # Process cases in parallel with limited concurrency
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        loop = asyncio.get_event_loop()
+        
+        # Create tasks for each case
+        tasks = []
+        for case_id in case_ids:
+            task = loop.run_in_executor(executor, process_single_wi_scoped_parsing, case_id, cookies, include_confidence, include_source_lines)
+            tasks.append(task)
+        
+        # Wait for all tasks to complete
+        completed_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        for i, result in enumerate(completed_results):
+            case_id = case_ids[i]
+            if isinstance(result, Exception):
+                errors.append({
+                    "case_id": case_id,
+                    "error": str(result)
+                })
+                logger.error(f"❌ Error processing case {case_id}: {str(result)}")
+            else:
+                results.append({
+                    "case_id": case_id,
+                    "result": result
+                })
+                logger.info(f"✅ Successfully processed case {case_id}")
+    
+    # Store results
+    batch_results = {
+        "batch_id": batch_id,
+        "total_cases": len(case_ids),
+        "include_confidence": include_confidence,
+        "include_source_lines": include_source_lines,
+        "successful_cases": len(results),
+        "failed_cases": len(errors),
+        "results": results,
+        "errors": errors,
+        "completed_at": datetime.now().isoformat()
+    }
+    
+    logger.info(f"✅ Completed batch WI scoped parsing for batch_id: {batch_id}")
+    return batch_results
+
+def process_single_wi_scoped_parsing(case_id: str, cookies: dict, include_confidence: bool, include_source_lines: bool) -> Dict[str, Any]:
+    """
+    Process scoped WI parsing for a single case.
+    """
+    try:
+        logger.info(f"🔍 Processing scoped WI parsing for case_id: {case_id}")
+        
+        # Fetch WI file grid
+        wi_files = fetch_wi_file_grid(case_id, cookies)
+        if not wi_files:
+            raise Exception("No WI files found for this case")
+        
+        case_results = {
+            "case_id": case_id,
+            "total_files": len(wi_files),
+            "files": [],
+            "summary": {
+                "total_forms_found": 0,
+                "total_fields_extracted": 0,
+                "average_confidence": 0.0,
+                "form_types_found": set()
+            }
+        }
+        
+        total_confidence = 0.0
+        total_fields = 0
+        
+        for i, wi_file in enumerate(wi_files):
+            file_name = wi_file["FileName"]
+            case_doc_id = wi_file["CaseDocumentID"]
+            
+            logger.info(f"📄 Processing file {i+1}/{len(wi_files)}: {file_name}")
+            
+            try:
+                # Download PDF
+                pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                if not pdf_bytes:
+                    logger.warning(f"⚠️ No PDF content received for {file_name}")
+                    continue
+                
+                # Extract text
+                text = extract_text_from_pdf(pdf_bytes)
+                if not text:
+                    logger.warning(f"⚠️ No text extracted from {file_name}")
+                    continue
+                
+                # Use scoped parser
+                scoped_result = parse_transcript_scoped(text, file_name)
+                
+                # Add file metadata
+                file_result = {
+                    "file_name": file_name,
+                    "case_document_id": case_doc_id,
+                    "file_size_bytes": len(pdf_bytes),
+                    "text_length": len(text),
+                    "parsed_at": datetime.now().isoformat(),
+                    "metadata": scoped_result.get("metadata", {}),
+                    "forms": scoped_result.get("forms", [])
+                }
+                
+                # Update summary statistics
+                for form in scoped_result.get("forms", []):
+                    case_results["summary"]["total_forms_found"] += 1
+                    case_results["summary"]["form_types_found"].add(form.get("form_type", "Unknown"))
+                    
+                    for field in form.get("fields", []):
+                        case_results["summary"]["total_fields_extracted"] += 1
+                        total_fields += 1
+                        
+                        if include_confidence and "confidence" in field:
+                            total_confidence += field["confidence"]
+                
+                case_results["files"].append(file_result)
+                logger.info(f"✅ Successfully processed {file_name}: {len(scoped_result.get('forms', []))} forms found")
+                
+            except Exception as e:
+                logger.error(f"❌ Error processing file {file_name}: {str(e)}")
+                case_results["files"].append({
+                    "file_name": file_name,
+                    "case_document_id": case_doc_id,
+                    "error": str(e)
+                })
+        
+        # Calculate average confidence
+        if total_fields > 0:
+            case_results["summary"]["average_confidence"] = total_confidence / total_fields
+        
+        # Convert set to list for JSON serialization
+        case_results["summary"]["form_types_found"] = list(case_results["summary"]["form_types_found"])
+        
+        logger.info(f"✅ Completed scoped WI parsing for case_id: {case_id}")
+        logger.info(f"📊 Summary: {case_results['summary']['total_forms_found']} forms, {case_results['summary']['total_fields_extracted']} fields")
+        
+        return case_results
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing scoped WI parsing for case {case_id}: {str(e)}")
+        raise 

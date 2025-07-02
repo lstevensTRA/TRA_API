@@ -1,0 +1,17 @@
+<!--
+Label Studio Tax Form Field Extraction Template
+
+Fields: income, SSN, filing_status, and generic field extraction
+Usage: Import this XML into Label Studio project settings as the labeling config.
+-->
+<View>
+  <Header value="Tax Form Field Extraction" />
+  <Text name="raw_text" value="$raw_text" />
+  <Labels name="field" toName="raw_text">
+    <Label value="Income" background="#FFA500" />
+    <Label value="SSN" background="#87CEEB" />
+    <Label value="FilingStatus" background="#90EE90" />
+    <Label value="Other" background="#D3D3D3" />
+  </Labels>
+  <TextArea name="notes" toName="raw_text" perRegion="true" editable="true" maxSubmissions="1" placeholder="Add notes or corrections here..." />
+</View> 

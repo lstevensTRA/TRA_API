@@ -1,7 +1,7 @@
 form_patterns = {
     # 1099-MISC Form
     '1099-MISC': {
-        'pattern': r'Form 1099-MISC',
+        'pattern': r'1099-MISC',
         'category': 'SE',  # Self-Employment
         'fields': {
             # Income Fields
@@ -49,7 +49,7 @@ form_patterns = {
 
     # 1099-NEC Form
     '1099-NEC': {
-        'pattern': r'Form 1099-NEC',
+        'pattern': r'1099-NEC',
         'category': 'SE',  # Self-Employment
         'fields': {
             # Income Fields
@@ -73,7 +73,7 @@ form_patterns = {
 
     # 1099-K Form
     '1099-K': {
-        'pattern': r'Form 1099-K',
+        'pattern': r'1099-K',
         'category': 'SE',  # Self-Employment
         'fields': {
             # Income Fields
@@ -97,7 +97,7 @@ form_patterns = {
 
     # 1099-PATR Form
     '1099-PATR': {
-        'pattern': r'Form 1099-PATR',
+        'pattern': r'1099-PATR',
         'category': 'SE',  # Self-Employment
         'fields': {
             # Income Fields
@@ -127,13 +127,13 @@ form_patterns = {
 
     # 1042-S Form
     '1042-S': {
-        'pattern': r'Form 1042-S',
+        'pattern': r'1042-S',
         'category': 'Neither',  # Not SE or Non-SE
         'fields': {
             # Income Fields
             'Gross Income': r'Gross income[:\s]*\$([\d,.]+)',
             # Withholdings
-            'Federal Withholding': r'U\.S\. federal tax withheld[:\s]*\$([\d,.]+)'
+            'Federal Withholding': r'U\\.S\\. federal tax withheld[:\\s]*\\$([\\d,.]+)'
         },
         'calculation': {
             'Income': lambda fields: (
@@ -147,7 +147,7 @@ form_patterns = {
 
     # K-1 (Form 1065)
     'K-1 (Form 1065)': {
-        'pattern': r'Schedule K-1 \(Form 1065\)',
+        'pattern': r'K-1 \(Form 1065\)',
         'category': 'SE',  # Self-Employment
         'fields': {
             # Income Fields
@@ -175,7 +175,7 @@ form_patterns = {
 
     # K-1 (Form 1041)
     'K-1 (Form 1041)': {
-        'pattern': r'Schedule K-1 \(Form 1041\)',
+        'pattern': r'K-1 \(Form 1041\)',
         'category': 'Neither',  # Not SE or Non-SE
         'fields': {
             # Income Fields
@@ -197,8 +197,7 @@ form_patterns = {
 form_patterns.update({
     # W-2 Form (robust pattern)
     'W-2': {
-        # This pattern matches 'Form W-2 Wage and Tax Statement' with optional spaces, hyphens, and OCR quirks
-        'pattern': r'Form\s*W\s*[-–]?\s*2.*W\s*-?\s*a\s*-?\s*g\s*-?\s*e.*T\s*-?\s*a\s*-?\s*x.*S\s*-?\s*t\s*-?\s*a\s*-?\s*t\s*-?\s*e\s*-?\s*m\s*-?\s*e\s*-?\s*n\s*-?\s*t',
+        'pattern': r'W-2',
         'category': 'Non-SE',  # Non-Self-Employment
         'fields': {
             # Income Fields
@@ -222,7 +221,7 @@ form_patterns.update({
 
     # W-2G Form
     'W-2G': {
-        'pattern': r'Form W-2G',
+        'pattern': r'W-2G',
         'category': 'Non-SE',  # Non-Self-Employment
         'fields': {
             # Income Fields
@@ -242,7 +241,7 @@ form_patterns.update({
 
     # 1099-R Form
     '1099-R': {
-        'pattern': r'Form 1099-R',
+        'pattern': r'1099-R',
         'category': 'Non-SE',  # Non-Self-Employment
         'fields': {
             # Income Fields

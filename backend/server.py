@@ -77,23 +77,49 @@ async def root():
 @app.post("/predict_wi", tags=["ML Backend"])
 async def predict_wi(request: Request):
     """
-    Predict WI form fields for Label Studio ML backend integration.
-    Accepts a task with raw_text and returns pre-annotations in Label Studio format.
+    Predict WI form fields for Label Studio ML backend integration or for a list of case IDs.
+    If given {"case_ids": [...]}, will fetch raw text and structured data for each case and run prediction/comparison.
+    If given the old Label Studio payload, will behave as before.
     """
     data = await request.json()
-    # Label Studio may send a list of tasks or a single task
+    # New: If user sends {"case_ids": [...]}, do all the work for them
+    if isinstance(data, dict) and "case_ids" in data:
+        case_ids = data["case_ids"]
+        # Import batch endpoints
+        from app.routes.training_routes import get_raw_text_wi
+        from app.routes.analysis_routes import batch_wi_structured
+        # Fetch raw text and structured data
+        raw_texts = await get_raw_text_wi(case_ids)
+        structured = batch_wi_structured(case_ids)
+        results = {}
+        for case_id in case_ids:
+            raw_text = raw_texts.get(case_id, "")
+            structured_data = structured.get(case_id, {})
+            # Use your extraction logic (reuse old code)
+            if not raw_text:
+                results[case_id] = {"error": "No raw text found for this case."}
+                continue
+            try:
+                extraction_results = extract_fields_from_text(raw_text)
+                # Optionally compare to structured_data here
+                results[case_id] = {
+                    "extraction_results": extraction_results,
+                    "structured": structured_data
+                }
+            except Exception as e:
+                results[case_id] = {"error": str(e)}
+        return results
+    # Old behavior: Label Studio ML backend
     task = data[0] if isinstance(data, list) else data
     text = task.get('data', {}).get('raw_text', '')
     if not text:
         raise HTTPException(status_code=400, detail="No raw_text provided in task data.")
-    # Use your extraction logic
     results = extract_fields_from_text(text)
     ls_results = []
     for result in results:
         form_type = result.get('form_type')
         fields = result.get('fields', {})
         for field, value in fields.items():
-            # Find the value in the text (first occurrence)
             value_str = str(value)
             start = text.find(value_str)
             if start == -1:
