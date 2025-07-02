@@ -208,23 +208,72 @@ def wi_analysis(
                 years_data[tax_year].append(form_dict)
                 total_forms += 1
         
-        # Create summary
+        # Create summary with proper structure
         summary = {
             'total_years': len(years_data),
+            'years_analyzed': list(years_data.keys()),
             'total_forms': total_forms,
-            'total_files': total_files,
-            'by_year': {}
+            'by_year': {},
+            'overall_totals': {
+                'total_se_income': 0.0,
+                'total_non_se_income': 0.0,
+                'total_other_income': 0.0,
+                'total_income': 0.0,
+                'estimated_agi': 0.0
+            }
         }
         
         for year, forms in years_data.items():
-            total_income = sum(form.get('Income', 0) for form in forms)
-            total_withholding = sum(form.get('Withholding', 0) for form in forms)
+            # Calculate income by category
+            se_income = 0.0
+            se_withholding = 0.0
+            non_se_income = 0.0
+            non_se_withholding = 0.0
+            other_income = 0.0
+            other_withholding = 0.0
+            
+            for form in forms:
+                form_type = form.get('Form', '')
+                income = form.get('Income', 0)
+                withholding = form.get('Withholding', 0)
+                
+                # Categorize by form type
+                if form_type == 'W-2':
+                    non_se_income += income
+                    non_se_withholding += withholding
+                elif form_type.startswith('1099'):
+                    if form_type in ['1099-MISC', '1099-NEC'] and form.get('Category') == 'Self-Employment':
+                        se_income += income
+                        se_withholding += withholding
+                    else:
+                        other_income += income
+                        other_withholding += withholding
+                else:
+                    other_income += income
+                    other_withholding += withholding
+            
+            total_income = se_income + non_se_income + other_income
+            total_withholding = se_withholding + non_se_withholding + other_withholding
+            
             summary['by_year'][year] = {
                 'number_of_forms': len(forms),
+                'se_income': se_income,
+                'se_withholding': se_withholding,
+                'non_se_income': non_se_income,
+                'non_se_withholding': non_se_withholding,
+                'other_income': other_income,
+                'other_withholding': other_withholding,
                 'total_income': total_income,
                 'total_withholding': total_withholding,
-                'estimated_agi': total_income  # Simplified for now
+                'estimated_agi': total_income
             }
+            
+            # Add to overall totals
+            summary['overall_totals']['total_se_income'] += se_income
+            summary['overall_totals']['total_non_se_income'] += non_se_income
+            summary['overall_totals']['total_other_income'] += other_income
+            summary['overall_totals']['total_income'] += total_income
+            summary['overall_totals']['estimated_agi'] += total_income
         
         return WIAnalysisResponse(
             summary=summary,
