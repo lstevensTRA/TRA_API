@@ -523,5 +523,121 @@ class PatternLearningSystem:
         logger.info(f"✅ Implemented suggestion {suggestion_id} for pattern {pattern_id}")
         return True
 
+    def train(self, training_data: list, field_name: str, epochs: int = 5):
+        """
+        Train a simple TensorFlow model to predict the value for a specific WI field.
+        Args:
+            training_data: List of dicts with keys 'text' and 'label' (the correct value for the field)
+            field_name: The WI field to train on (e.g., 'Wages')
+            epochs: Number of training epochs
+        """
+        import tensorflow as tf
+        from tensorflow import keras
+        from sklearn.model_selection import train_test_split
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
+        import os
+
+        # Prepare data
+        texts = [ex['text'] for ex in training_data]
+        labels = [ex['label'] for ex in training_data]
+        
+        # For demo: treat as classification if < 100 unique labels, else regression
+        unique_labels = list(set(labels))
+        is_classification = len(unique_labels) < 100
+
+        # Vectorize text
+        vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        X = vectorizer.fit_transform(texts).toarray()
+        
+        if is_classification:
+            label_to_idx = {label: i for i, label in enumerate(unique_labels)}
+            y = np.array([label_to_idx[label] for label in labels])
+            num_classes = len(unique_labels)
+        else:
+            # Regression: try to convert to float
+            y = np.array([float(label.replace(',', '').replace('$', '')) if label else 0.0 for label in labels])
+
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # Build model
+        model = keras.Sequential([
+            keras.layers.Input(shape=(X.shape[1],)),
+            keras.layers.Dense(64, activation='relu'),
+            keras.layers.Dropout(0.2),
+            keras.layers.Dense(32, activation='relu'),
+            keras.layers.Dropout(0.2),
+            keras.layers.Dense(num_classes if is_classification else 1, activation='softmax' if is_classification else 'linear')
+        ])
+        model.compile(
+            optimizer='adam',
+            loss='sparse_categorical_crossentropy' if is_classification else 'mse',
+            metrics=['accuracy'] if is_classification else ['mse']
+        )
+
+        # Train
+        model.fit(X_train, y_train, epochs=epochs, validation_data=(X_val, y_val), verbose=2)
+
+        # Save model and vectorizer
+        model_dir = f"pattern_learning_models/{field_name}"
+        os.makedirs(model_dir, exist_ok=True)
+        model.save(os.path.join(model_dir, 'model.h5'))
+        import pickle
+        with open(os.path.join(model_dir, 'vectorizer.pkl'), 'wb') as f:
+            pickle.dump(vectorizer, f)
+        if is_classification:
+            with open(os.path.join(model_dir, 'label_to_idx.pkl'), 'wb') as f:
+                pickle.dump(label_to_idx, f)
+
+        print(f"Model for field '{field_name}' trained and saved to {model_dir}")
+
+    def load_model(self, field_name: str):
+        """
+        Load a trained model and vectorizer for a specific field.
+        """
+        import tensorflow as tf
+        import os
+        import pickle
+        model_dir = f"pattern_learning_models/{field_name}"
+        model = tf.keras.models.load_model(os.path.join(model_dir, 'model.h5'))
+        with open(os.path.join(model_dir, 'vectorizer.pkl'), 'rb') as f:
+            vectorizer = pickle.load(f)
+        label_to_idx = None
+        try:
+            with open(os.path.join(model_dir, 'label_to_idx.pkl'), 'rb') as f:
+                label_to_idx = pickle.load(f)
+        except FileNotFoundError:
+            pass
+        return model, vectorizer, label_to_idx
+
+def fetch_wi_training_data(field_name: str, supabase=None, limit: int = 1000):
+    """
+    Fetch and prepare WI training data for a specific field from Supabase.
+    Returns a list of dicts: { 'text': ..., 'label': ... }
+    """
+    if supabase is None:
+        from app.utils.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+    # Join extractions and annotations, filter for approved
+    result = supabase.table("annotations").select(
+        "extraction_id, corrected_fields, status, extraction:extraction_id(document_id, fields)"
+    ).eq("status", "approved").limit(limit).execute()
+    training_data = []
+    for row in result.data:
+        extraction = row.get('extraction', {})
+        doc_id = extraction.get('document_id')
+        fields = extraction.get('fields', {})
+        corrected_fields = row.get('corrected_fields', {})
+        if not doc_id or field_name not in corrected_fields:
+            continue
+        # Get the raw text for the document
+        doc_result = supabase.table("documents").select("raw_text").eq("id", doc_id).limit(1).execute()
+        if not doc_result.data:
+            continue
+        raw_text = doc_result.data[0].get('raw_text', '')
+        label = corrected_fields[field_name]
+        training_data.append({'text': raw_text, 'label': label})
+    return training_data
+
 # Global instance of the pattern learning system
 pattern_learning_system = PatternLearningSystem() 
