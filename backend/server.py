@@ -1,8 +1,9 @@
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes
+from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes, training_routes, case_data_routes
+from app.routes.training_routes import extract_fields_from_text
 
 # Configure logging
 logging.basicConfig(
@@ -35,7 +36,9 @@ app = FastAPI(
         {"name": "Client Profile", "description": "Endpoints for client profile management."},
         {"name": "IRS Standards", "description": "Endpoints for IRS Standards and county data."},
         {"name": "Disposable Income", "description": "Endpoints for disposable income calculations."},
-        {"name": "Pattern Learning", "description": "ML-enhanced pattern learning and user feedback endpoints."}
+        {"name": "Pattern Learning", "description": "ML-enhanced pattern learning and user feedback endpoints."},
+        {"name": "Training Workflow", "description": "Endpoints for training workflow."},
+        {"name": "Case Data", "description": "Endpoints for case data management."}
     ]
 )
 
@@ -64,10 +67,49 @@ app.include_router(disposable_income_routes.router, prefix="/disposable-income",
 app.include_router(test_routes.router, prefix="/test", tags=["Test"])
 app.include_router(pattern_learning_routes.router, prefix="/pattern-learning", tags=["Pattern Learning"])
 app.include_router(enhanced_analysis_routes.router, prefix="/analysis", tags=["Analysis"])
+app.include_router(training_routes.router, prefix="/api/training", tags=["Training Workflow"])
+app.include_router(case_data_routes.router, prefix="/case-data", tags=["Case Data"])
 
 @app.get("/")
 async def root():
     return {"message": "TRA API Backend is running", "version": "1.0.0"}
+
+@app.post("/predict_wi", tags=["ML Backend"])
+async def predict_wi(request: Request):
+    """
+    Predict WI form fields for Label Studio ML backend integration.
+    Accepts a task with raw_text and returns pre-annotations in Label Studio format.
+    """
+    data = await request.json()
+    # Label Studio may send a list of tasks or a single task
+    task = data[0] if isinstance(data, list) else data
+    text = task.get('data', {}).get('raw_text', '')
+    if not text:
+        raise HTTPException(status_code=400, detail="No raw_text provided in task data.")
+    # Use your extraction logic
+    results = extract_fields_from_text(text)
+    ls_results = []
+    for result in results:
+        form_type = result.get('form_type')
+        fields = result.get('fields', {})
+        for field, value in fields.items():
+            # Find the value in the text (first occurrence)
+            value_str = str(value)
+            start = text.find(value_str)
+            if start == -1:
+                continue
+            end = start + len(value_str)
+            ls_results.append({
+                "from_name": "field",
+                "to_name": "raw_text",
+                "type": "labels",
+                "value": {
+                    "start": start,
+                    "end": end,
+                    "labels": [field]
+                }
+            })
+    return [{"result": ls_results}]
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
