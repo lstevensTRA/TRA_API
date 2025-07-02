@@ -35,6 +35,48 @@ def test_transcript_endpoint(case_id: str):
     """
     return SuccessResponse(message="Transcript routes module loaded", status="success", data={"case_id": case_id})
 
+@router.get("/auth-check", tags=["Transcripts"], response_model=SuccessResponse)
+def check_auth_status():
+    """
+    Check authentication status without requiring login.
+    Returns whether cookies exist and are valid.
+    """
+    try:
+        # Check if cookies exist
+        if not cookies_exist():
+            return SuccessResponse(
+                message="Authentication required - no cookies found", 
+                status="error", 
+                data={
+                    "authenticated": False,
+                    "error": "Please authenticate first using /auth/login",
+                    "note": "All transcript endpoints require authentication"
+                }
+            )
+        
+        cookies = get_cookies()
+        
+        return SuccessResponse(
+            message="Authentication successful", 
+            status="success", 
+            data={
+                "authenticated": True,
+                "cookie_count": len(cookies.get('cookies', [])) if isinstance(cookies, dict) and 'cookies' in cookies else 'unknown',
+                "note": "You can now access transcript endpoints"
+            }
+        )
+        
+    except Exception as e:
+        return SuccessResponse(
+            message="Error checking authentication", 
+            status="error", 
+            data={
+                "authenticated": False,
+                "error": str(e),
+                "note": "Please try authenticating again"
+            }
+        )
+
 @router.get("/test-raw-wi/{case_id}", tags=["Transcripts"], response_model=SuccessResponse)
 def test_raw_wi_endpoint(case_id: str):
     """
