@@ -35,7 +35,62 @@ def test_transcript_endpoint(case_id: str):
     """
     return SuccessResponse(message="Transcript routes module loaded", status="success", data={"case_id": case_id})
 
-@router.get("/raw/wi/{case_id}", tags=["Transcripts"], response_model=RawDataResponse)
+@router.get("/test-raw-wi/{case_id}", tags=["Transcripts"], response_model=SuccessResponse)
+def test_raw_wi_endpoint(case_id: str):
+    """
+    Test endpoint for raw WI data (no authentication required for testing).
+    """
+    try:
+        # Check if cookies exist
+        if not cookies_exist():
+            return SuccessResponse(
+                message="Authentication required - no cookies found", 
+                status="error", 
+                data={
+                    "case_id": case_id,
+                    "error": "Please authenticate first using /auth/login",
+                    "endpoint": f"/transcripts/raw/wi/{case_id}"
+                }
+            )
+        
+        cookies = get_cookies()
+        
+        # Try to fetch WI files
+        wi_files = fetch_wi_file_grid(case_id, cookies)
+        if not wi_files:
+            return SuccessResponse(
+                message="No WI files found", 
+                status="error", 
+                data={
+                    "case_id": case_id,
+                    "error": "No WI files found for this case",
+                    "endpoint": f"/transcripts/raw/wi/{case_id}"
+                }
+            )
+        
+        return SuccessResponse(
+            message="Authentication successful and WI files found", 
+            status="success", 
+            data={
+                "case_id": case_id,
+                "file_count": len(wi_files),
+                "files": [{"filename": f.get("FileName", "Unknown"), "id": f.get("CaseDocumentID", "Unknown")} for f in wi_files[:3]],  # Show first 3 files
+                "endpoint": f"/transcripts/raw/wi/{case_id}"
+            }
+        )
+        
+    except Exception as e:
+        return SuccessResponse(
+            message="Error occurred", 
+            status="error", 
+            data={
+                "case_id": case_id,
+                "error": str(e),
+                "endpoint": f"/transcripts/raw/wi/{case_id}"
+            }
+        )
+
+@router.get("/raw/wi/{case_id}", tags=["Transcripts"])
 def get_raw_wi_data(
     case_id: str,
     include_tps_analysis: Optional[bool] = Query(False, description="Include TP/S analysis in response"),
@@ -63,12 +118,19 @@ def get_raw_wi_data(
         # Parse WI PDFs with new scoped parsing
         wi_data = parse_wi_pdfs(wi_files, cookies, case_id, include_tps_analysis, filing_status, return_scoped_structure=True)
         
-        # Remove summary if present (keep only raw data)
-        if 'summary' in wi_data:
-            del wi_data['summary']
+        # Format response to match expected structure
+        from datetime import datetime
+        
+        response_data = {
+            "case_id": case_id,
+            "data": wi_data,
+            "data_type": "WI",
+            "file_count": len(wi_files),
+            "extracted_at": datetime.now().isoformat()
+        }
         
         logger.info(f"✅ Successfully returned raw WI data for case_id: {case_id}")
-        return wi_data
+        return response_data
         
     except HTTPException:
         raise
