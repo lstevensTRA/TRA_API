@@ -90,17 +90,18 @@ def test_raw_wi_endpoint(case_id: str):
             }
         )
 
-@router.get("/structured/wi/{case_id}", tags=["Transcripts"])
-def get_structured_wi_data(
+@router.get("/analysis/wi/{case_id}", tags=["Transcripts"])
+def get_wi_analysis(
     case_id: str,
     include_tps_analysis: Optional[bool] = Query(False, description="Include TP/S analysis in response"),
     filing_status: Optional[str] = Query(None, description="Client filing status for TP/S analysis")
 ):
     """
-    Get structured WI data with scoped parsing, confidence scores, and field extractions.
-    Returns processed data with metadata, form blocks, and extracted fields.
+    Get WI data with scoped parsing analysis, confidence scores, and field extractions.
+    Returns detailed parsing results with metadata, form blocks, and extracted fields.
+    Perfect for regex testing and pattern analysis.
     """
-    logger.info(f"🔍 Received structured WI data request for case_id: {case_id}")
+    logger.info(f"🔍 Received WI analysis request for case_id: {case_id}")
     
     # Check authentication
     if not cookies_exist():
@@ -129,13 +130,13 @@ def get_structured_wi_data(
             "extracted_at": datetime.now().isoformat()
         }
         
-        logger.info(f"✅ Successfully returned structured WI data for case_id: {case_id}")
+        logger.info(f"✅ Successfully returned WI analysis for case_id: {case_id}")
         return response_data
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting structured WI data for case_id {case_id}: {str(e)}")
+        logger.error(f"❌ Error getting WI analysis for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/raw/wi/{case_id}", tags=["Transcripts"])
