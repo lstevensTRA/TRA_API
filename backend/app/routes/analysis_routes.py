@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from typing import Optional, Dict, Any, List
 from app.utils.cookies import cookies_exist, get_cookies
 from app.services.wi_service import fetch_wi_file_grid, parse_wi_pdfs
@@ -11,6 +11,8 @@ from app.models.response_models import (
     ClientAnalysisResponse, ErrorResponse, WIFormData
 )
 from datetime import datetime
+from app.utils.wi_patterns import form_patterns
+import re
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -390,4 +392,102 @@ def pricing_model(
     Returns pricing recommendations, client insights, and financial analysis.
     """
     # This will be implemented in the next iteration
-    return {"message": "Pricing model endpoint - to be implemented"} 
+    return {"message": "Pricing model endpoint - to be implemented"}
+
+@router.post("/batch/wi-structured", tags=["Analysis"], summary="Batch get structured WI data", description="Get structured WI data for multiple case IDs at once.")
+def batch_wi_structured(case_ids: list = Body(..., embed=True)):
+    """
+    Batch endpoint to get structured WI data for multiple case IDs.
+    Input: {"case_ids": ["caseid1", "caseid2", ...]}
+    Output: {"caseid1": {...}, "caseid2": {...}, ...}
+    """
+    results = {}
+    for case_id in case_ids:
+        try:
+            results[case_id] = wi_analysis(case_id)
+        except Exception as e:
+            results[case_id] = {"error": str(e)}
+    return results
+
+@router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases.")
+def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
+    """
+    For each case, fetch raw WI text and structured WI data, compare regex extraction, and suggest improvements.
+    Returns a JSON report for frontend review.
+    """
+    from app.routes.training_routes import get_raw_text_wi
+    results = {}
+    # 1. Get all raw text in batch
+    raw_texts = get_raw_text_wi(case_ids)
+    # 2. Get all structured WI data in batch
+    batch_structured = batch_wi_structured(case_ids)
+    # 3. For each case, compare fields
+    for case_id in case_ids:
+        case_report = []
+        raw_text = raw_texts.get(case_id, "")
+        structured = batch_structured.get(case_id, {})
+        years_data = structured.get("years_data", {}) if isinstance(structured, dict) else {}
+        for year, forms in years_data.items():
+            if not isinstance(forms, list):
+                continue
+            for form_idx, form in enumerate(forms):
+                form_type = getattr(form, 'Form', None) or form.get('Form')
+                fields = getattr(form, 'Fields', None) or form.get('Fields', {})
+                for field, value in fields.items():
+                    value_str = str(value)
+                    current_regex = form_patterns.get(form_type, {}).get('fields', {}).get(field, '')
+                    # Find all matches in raw text
+                    match_info = []
+                    found_expected = False
+                    for match in re.finditer(current_regex, raw_text, re.IGNORECASE | re.MULTILINE):
+                        captured = match.group(1) if match.groups() else match.group(0)
+                        is_expected = captured.strip('$,') == value_str.strip('$,')
+                        if is_expected:
+                            found_expected = True
+                        match_info.append({
+                            'full_match': match.group(0),
+                            'captured': captured,
+                            'position': match.start(),
+                            'is_expected': is_expected,
+                            'context': raw_text[max(0, match.start()-50):match.end()+50]
+                        })
+                    # Suggest improved regex (simple heuristics)
+                    suggestions = []
+                    if not found_expected and value_str in raw_text:
+                        # Suggest a pattern based on the line containing the value
+                        for line in raw_text.split('\n'):
+                            if value_str in line:
+                                line_pattern = re.escape(line.strip()).replace(re.escape(value_str), r'([\\d,.]+)')
+                                suggestions.append({
+                                    'pattern': line_pattern,
+                                    'description': 'Pattern from context line'
+                                })
+                                break
+                        # Generic suggestions
+                        if 'income' in field.lower() or 'wage' in field.lower():
+                            suggestions.append({
+                                'pattern': f'{re.escape(field)}[:\\s]*\\$?([\\d,.]+)',
+                                'description': 'Generic income field pattern'
+                            })
+                        elif 'tax' in field.lower() or 'withheld' in field.lower():
+                            suggestions.append({
+                                'pattern': f'{re.escape(field)}[:\\s]*\\$?([\\d,.]+)',
+                                'description': 'Generic tax field pattern'
+                            })
+                    # Copy-paste ready code
+                    wi_patterns_snippet = f'    "{field}": r"{current_regex}"'
+                    case_report.append({
+                        'case_id': case_id,
+                        'year': year,
+                        'form_type': form_type,
+                        'form_index': form_idx,
+                        'field': field,
+                        'extracted_value': value_str,
+                        'current_regex': current_regex,
+                        'matches': match_info,
+                        'found_expected': found_expected,
+                        'suggestions': suggestions,
+                        'wi_patterns_snippet': wi_patterns_snippet
+                    })
+        results[case_id] = case_report
+    return results 
