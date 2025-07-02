@@ -2,8 +2,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes, training_routes, case_data_routes
-from app.routes.training_routes import extract_fields_from_text
+from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes, case_data_routes
 
 # Configure logging
 logging.basicConfig(
@@ -37,7 +36,7 @@ app = FastAPI(
         {"name": "IRS Standards", "description": "Endpoints for IRS Standards and county data."},
         {"name": "Disposable Income", "description": "Endpoints for disposable income calculations."},
         {"name": "Pattern Learning", "description": "ML-enhanced pattern learning and user feedback endpoints."},
-        {"name": "Training Workflow", "description": "Endpoints for training workflow."},
+
         {"name": "Case Data", "description": "Endpoints for case data management."}
     ]
 )
@@ -67,7 +66,7 @@ app.include_router(disposable_income_routes.router, prefix="/disposable-income",
 app.include_router(test_routes.router, prefix="/test", tags=["Test"])
 app.include_router(pattern_learning_routes.router, prefix="/pattern-learning", tags=["Pattern Learning"])
 app.include_router(enhanced_analysis_routes.router, prefix="/analysis", tags=["Analysis"])
-app.include_router(training_routes.router, prefix="/api/training", tags=["Training Workflow"])
+
 app.include_router(case_data_routes.router, prefix="/case-data", tags=["Case Data"])
 
 @app.get("/")
@@ -86,10 +85,45 @@ async def predict_wi(request: Request):
     if isinstance(data, dict) and "case_ids" in data:
         case_ids = data["case_ids"]
         # Import batch endpoints
-        from app.routes.training_routes import get_raw_text_wi
         from app.routes.analysis_routes import batch_wi_structured
+        from app.services.wi_service import fetch_wi_file_grid, download_wi_pdf
+        from app.utils.pdf_utils import extract_text_from_pdf
+        from app.utils.cookies import get_cookies
+        
         # Fetch raw text and structured data
-        raw_texts = await get_raw_text_wi(case_ids)
+        raw_texts = {}
+        cookies = get_cookies()
+        
+        for case_id in case_ids:
+            try:
+                wi_files = fetch_wi_file_grid(case_id, cookies)
+                if not wi_files:
+                    raw_texts[case_id] = ""
+                    continue
+                
+                all_text = []
+                for wi_file in wi_files:
+                    try:
+                        case_doc_id = wi_file.get("CaseDocumentID")
+                        if not case_doc_id:
+                            continue
+                        
+                        pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                        if not pdf_bytes:
+                            continue
+                        
+                        text = extract_text_from_pdf(pdf_bytes)
+                        if text:
+                            all_text.append(text)
+                    except Exception as e:
+                        logger.error(f"Error processing WI file for case {case_id}: {str(e)}")
+                        continue
+                
+                raw_texts[case_id] = "\n".join(all_text)
+            except Exception as e:
+                logger.error(f"Error getting raw text for case {case_id}: {str(e)}")
+                raw_texts[case_id] = ""
+        
         structured = batch_wi_structured(case_ids)
         results = {}
         for case_id in case_ids:
@@ -100,8 +134,23 @@ async def predict_wi(request: Request):
                 results[case_id] = {"error": "No raw text found for this case."}
                 continue
             try:
-                extraction_results = extract_fields_from_text(raw_text)
-                # Optionally compare to structured_data here
+                # Simple field extraction without training data
+                extraction_results = []
+                # Basic regex extraction for common fields
+                import re
+                for field_name, pattern in [
+                    ("Wages", r'Wages[\s,]*tips[\s,]*and[\s,]*other[\s,]*compensation[:\s]*\$?([\d,.]+)'),
+                    ("Federal Withholding", r'Federal[\s,]*income[\s,]*tax[\s,]*withheld[:\s]*\$?([\d,.]+)'),
+                    ("Non-Employee Compensation", r'Non[- ]?Employee[- ]?Compensation[:\s]*\$?([\d,.]+)')
+                ]:
+                    match = re.search(pattern, raw_text, re.IGNORECASE)
+                    if match:
+                        extraction_results.append({
+                            "field": field_name,
+                            "value": match.group(1),
+                            "confidence": 0.8
+                        })
+                
                 results[case_id] = {
                     "extraction_results": extraction_results,
                     "structured": structured_data
@@ -114,27 +163,32 @@ async def predict_wi(request: Request):
     text = task.get('data', {}).get('raw_text', '')
     if not text:
         raise HTTPException(status_code=400, detail="No raw_text provided in task data.")
-    results = extract_fields_from_text(text)
+    
+    # Simple field extraction without training data
+    import re
     ls_results = []
-    for result in results:
-        form_type = result.get('form_type')
-        fields = result.get('fields', {})
-        for field, value in fields.items():
-            value_str = str(value)
+    for field_name, pattern in [
+        ("Wages", r'Wages[\s,]*tips[\s,]*and[\s,]*other[\s,]*compensation[:\s]*\$?([\d,.]+)'),
+        ("Federal Withholding", r'Federal[\s,]*income[\s,]*tax[\s,]*withheld[:\s]*\$?([\d,.]+)'),
+        ("Non-Employee Compensation", r'Non[- ]?Employee[- ]?Compensation[:\s]*\$?([\d,.]+)')
+    ]:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value_str = match.group(1)
             start = text.find(value_str)
-            if start == -1:
-                continue
-            end = start + len(value_str)
-            ls_results.append({
-                "from_name": "field",
-                "to_name": "raw_text",
-                "type": "labels",
-                "value": {
-                    "start": start,
-                    "end": end,
-                    "labels": [field]
-                }
-            })
+            if start != -1:
+                end = start + len(value_str)
+                ls_results.append({
+                    "from_name": "field",
+                    "to_name": "raw_text",
+                    "type": "labels",
+                    "value": {
+                        "start": start,
+                        "end": end,
+                        "labels": [field_name]
+                    }
+                })
+    
     return [{"result": ls_results}]
 
 if __name__ == "__main__":

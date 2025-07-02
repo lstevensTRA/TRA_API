@@ -580,11 +580,45 @@ async def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
     For each case, fetch raw WI text and structured WI data using new scoped parsing, compare regex extraction, and suggest improvements.
     Returns a JSON report for frontend review.
     """
-    from app.routes.training_routes import get_raw_text_wi
+    from app.services.wi_service import fetch_wi_file_grid, download_wi_pdf
+    from app.utils.pdf_utils import extract_text_from_pdf
+    from app.utils.cookies import get_cookies
+    
     results = {}
     
     # 1. Get all raw text in batch
-    raw_texts = await get_raw_text_wi(case_ids)
+    raw_texts = {}
+    cookies = get_cookies()
+    
+    for case_id in case_ids:
+        try:
+            wi_files = fetch_wi_file_grid(case_id, cookies)
+            if not wi_files:
+                raw_texts[case_id] = ""
+                continue
+            
+            all_text = []
+            for wi_file in wi_files:
+                try:
+                    case_doc_id = wi_file.get("CaseDocumentID")
+                    if not case_doc_id:
+                        continue
+                    
+                    pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                    if not pdf_bytes:
+                        continue
+                    
+                    text = extract_text_from_pdf(pdf_bytes)
+                    if text:
+                        all_text.append(text)
+                except Exception as e:
+                    logger.error(f"Error processing WI file for case {case_id}: {str(e)}")
+                    continue
+            
+            raw_texts[case_id] = "\n".join(all_text)
+        except Exception as e:
+            logger.error(f"Error getting raw text for case {case_id}: {str(e)}")
+            raw_texts[case_id] = ""
     
     # 2. Get all structured WI data in batch using new scoped parsing
     batch_structured = batch_wi_structured(case_ids, use_scoped_parsing=True)

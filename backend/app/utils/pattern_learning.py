@@ -517,32 +517,12 @@ class PatternLearningSystem:
 
 def fetch_wi_training_data(field_name: str, supabase=None, limit: int = 1000):
     """
-    Fetch and prepare WI training data for a specific field from Supabase.
+    Fetch and prepare WI training data for a specific field.
     Returns a list of dicts: { 'text': ..., 'label': ... }
+    Note: Supabase training data functionality has been removed.
     """
-    if supabase is None:
-        from app.utils.supabase_client import get_supabase_client
-        supabase = get_supabase_client()
-    # Join extractions and annotations, filter for approved
-    result = supabase.table("annotations").select(
-        "extraction_id, corrected_fields, status, extraction:extraction_id(document_id, fields)"
-    ).eq("status", "approved").limit(limit).execute()
-    training_data = []
-    for row in result.data:
-        extraction = row.get('extraction', {})
-        doc_id = extraction.get('document_id')
-        fields = extraction.get('fields', {})
-        corrected_fields = row.get('corrected_fields', {})
-        if not doc_id or field_name not in corrected_fields:
-            continue
-        # Get the raw text for the document
-        doc_result = supabase.table("documents").select("raw_text").eq("id", doc_id).limit(1).execute()
-        if not doc_result.data:
-            continue
-        raw_text = doc_result.data[0].get('raw_text', '')
-        label = corrected_fields[field_name]
-        training_data.append({'text': raw_text, 'label': label})
-    return training_data
+    logger.warning("⚠️ Supabase training data functionality has been removed. Returning empty training data.")
+    return []
 
 # Global instance of the pattern learning system
 pattern_learning_system = PatternLearningSystem() 
