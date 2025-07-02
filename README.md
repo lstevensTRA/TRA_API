@@ -1,5 +1,25 @@
 # TRA API Backend
 
+## Label Studio Integration for Tax Form ML Training Pipeline
+
+This project integrates [Label Studio](https://labelstud.io/) for annotation and ML training of tax form data. The workflow includes:
+- Exporting documents and extractions from Supabase to Label Studio for annotation
+- Importing completed annotations back into Supabase
+- Keeping Label Studio and the database in sync for batch ML training
+
+### Key Scripts
+- `export_to_labelstudio.py`: Export documents/extractions to Label Studio format
+- `import_from_labelstudio.py`: Import annotations from Label Studio API to Supabase
+- `sync_training_data.py`: Sync Label Studio tasks and Supabase records
+
+### Setup
+1. Install dependencies: `pip install -r requirements.txt`
+2. Run Label Studio: `label-studio start`
+3. Configure Label Studio with the provided template for tax form field extraction
+4. Use the integration scripts in `backend/scripts/` to manage data flow
+
+See the documentation in `backend/scripts/` for details on each script and workflow.
+
 A FastAPI-based backend service for TRA (Transportation Research Associates) data processing and API endpoints.
 
 ## Features
@@ -140,4 +160,30 @@ This project is proprietary and confidential. All rights reserved.
 
 ## Support
 
-For support and questions, please contact the development team or create an issue in the repository. 
+For support and questions, please contact the development team or create an issue in the repository.
+
+## CONSTRAINTS:
+- Must use existing backend endpoints (no direct DB access)
+- Connect to existing Supabase instance for data (via Supabase JS client)
+- Use React (with functional components and hooks)
+- Use Express proxy if needed for local development (to avoid CORS)
+- Responsive, user-friendly UI
+- (Optional) Auth integration with Supabase if enabled
+
+## ENVIRONMENT SETUP:
+- REACT_APP_API_URL=http://localhost:8000/api
+- REACT_APP_SUPABASE_URL=https://your-project.supabase.co
+- REACT_APP_SUPABASE_ANON_KEY=your-anon-key
+
+## UI PREFERENCES:
+- Use Tailwind CSS for styling
+- Consider using shadcn/ui components
+- Or: Use Material-UI / Ant Design / etc.
+
+## ERROR HANDLING:
+- Show loading states during API calls
+- Display user-friendly error messages
+- Handle network failures gracefully
+
+**You can copy-paste this into Famous AI or any code generation tool to get a tailored React frontend for your ML training pipeline!**  
+Let me know if you want to add/remove any details or need a more technical/less technical version. # Trigger deploy for TensorFlow fix
