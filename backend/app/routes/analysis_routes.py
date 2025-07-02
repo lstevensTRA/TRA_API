@@ -574,85 +574,153 @@ def batch_wi_structured(
             results[case_id] = {"error": str(e)}
     return results
 
-@router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases.")
+@router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases using new scoped parsing.")
 async def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
     """
-    For each case, fetch raw WI text and structured WI data, compare regex extraction, and suggest improvements.
+    For each case, fetch raw WI text and structured WI data using new scoped parsing, compare regex extraction, and suggest improvements.
     Returns a JSON report for frontend review.
     """
     from app.routes.training_routes import get_raw_text_wi
     results = {}
+    
     # 1. Get all raw text in batch
     raw_texts = await get_raw_text_wi(case_ids)
-    # 2. Get all structured WI data in batch
-    batch_structured = batch_wi_structured(case_ids)
-    # 3. For each case, compare fields
+    
+    # 2. Get all structured WI data in batch using new scoped parsing
+    batch_structured = batch_wi_structured(case_ids, use_scoped_parsing=True)
+    
+    # 3. For each case, compare fields using scoped parsing results
     for case_id in case_ids:
         case_report = []
         raw_text = raw_texts.get(case_id, "")
         structured = batch_structured.get(case_id, {})
-        years_data = structured.get("years_data", {}) if isinstance(structured, dict) else {}
-        for year, forms in years_data.items():
-            if not isinstance(forms, list):
+        
+        # Handle new scoped structure format
+        scoped_results = structured.get("scoped_results", [])
+        
+        for file_result in scoped_results:
+            if not isinstance(file_result, dict):
                 continue
+                
+            file_name = file_result.get('file_name', '')
+            forms = file_result.get('forms', [])
+            
             for form_idx, form in enumerate(forms):
-                form_type = getattr(form, 'Form', None) or form.get('Form')
-                fields = getattr(form, 'Fields', None) or form.get('Fields', {})
-                for field, value in fields.items():
-                    value_str = str(value)
-                    current_regex = form_patterns.get(form_type, {}).get('fields', {}).get(field, '')
-                    # Find all matches in raw text
+                if not isinstance(form, dict):
+                    continue
+                    
+                form_type = form.get('form_type', '')
+                fields = form.get('fields', [])
+                
+                # Find canonical form name
+                canonical_form = None
+                for k, v in form_patterns.items():
+                    if re.search(v['pattern'], form_type, re.IGNORECASE):
+                        canonical_form = k
+                        break
+                
+                if not canonical_form:
+                    continue
+                
+                # Process each field from scoped parsing
+                for field in fields:
+                    if not isinstance(field, dict):
+                        continue
+                        
+                    field_name = field.get('name', '').replace('_', ' ').title()
+                    field_value = field.get('value', '')
+                    source_line = field.get('source_line', '')
+                    confidence = field.get('confidence_score', 0)
+                    
+                    # Try to find original field name in patterns
+                    orig_field_name = None
+                    for fname in form_patterns[canonical_form].get('fields', {}).keys():
+                        if fname.lower().replace(' ', '_') == field.get('name', ''):
+                            orig_field_name = fname
+                            break
+                    
+                    if not orig_field_name:
+                        continue
+                    
+                    current_regex = form_patterns[canonical_form]['fields'].get(orig_field_name, '')
+                    
+                    # Find matches in the source line (scoped approach)
                     match_info = []
                     found_expected = False
-                    for match in re.finditer(current_regex, raw_text, re.IGNORECASE | re.MULTILINE):
-                        captured = match.group(1) if match.groups() else match.group(0)
-                        is_expected = captured.strip('$,') == value_str.strip('$,')
-                        if is_expected:
-                            found_expected = True
-                        match_info.append({
-                            'full_match': match.group(0),
-                            'captured': captured,
-                            'position': match.start(),
-                            'is_expected': is_expected,
-                            'context': raw_text[max(0, match.start()-50):match.end()+50]
-                        })
-                    # Suggest improved regex (simple heuristics)
-                    suggestions = []
-                    if not found_expected and value_str in raw_text:
-                        # Suggest a pattern based on the line containing the value
-                        for line in raw_text.split('\n'):
-                            if value_str in line:
-                                line_pattern = re.escape(line.strip()).replace(re.escape(value_str), r'([\\d,.]+)')
-                                suggestions.append({
-                                    'pattern': line_pattern,
-                                    'description': 'Pattern from context line'
+                    
+                    if current_regex and source_line:
+                        try:
+                            for match in re.finditer(current_regex, source_line, re.IGNORECASE):
+                                captured = match.group(1) if match.groups() else match.group(0)
+                                is_expected = captured.strip('$,') == str(field_value).strip('$,')
+                                if is_expected:
+                                    found_expected = True
+                                match_info.append({
+                                    'full_match': match.group(0),
+                                    'captured': captured,
+                                    'position': match.start(),
+                                    'is_expected': is_expected,
+                                    'context': source_line,
+                                    'source_line': source_line
                                 })
-                                break
-                        # Generic suggestions
-                        if 'income' in field.lower() or 'wage' in field.lower():
+                        except re.error as e:
+                            match_info.append({
+                                'error': f"Regex error: {str(e)}",
+                                'context': source_line
+                            })
+                    
+                    # Also check if value appears in the broader raw text (for debugging)
+                    raw_text_matches = []
+                    if str(field_value) in raw_text:
+                        for match in re.finditer(re.escape(str(field_value)), raw_text):
+                            raw_text_matches.append({
+                                'position': match.start(),
+                                'context': raw_text[max(0, match.start()-50):match.end()+50]
+                            })
+                    
+                    # Suggest improved regex
+                    suggestions = []
+                    if not found_expected and source_line:
+                        # Suggest pattern based on source line
+                        if str(field_value) in source_line:
+                            line_pattern = re.escape(source_line.strip()).replace(re.escape(str(field_value)), r'([\\d,.]+)')
                             suggestions.append({
-                                'pattern': f'{re.escape(field)}[:\\s]*\\$?([\\d,.]+)',
+                                'pattern': line_pattern,
+                                'description': 'Pattern from source line'
+                            })
+                        
+                        # Generic suggestions based on field type
+                        if 'income' in orig_field_name.lower() or 'wage' in orig_field_name.lower():
+                            suggestions.append({
+                                'pattern': f'{re.escape(orig_field_name)}[:\\s]*\\$?([\\d,.]+)',
                                 'description': 'Generic income field pattern'
                             })
-                        elif 'tax' in field.lower() or 'withheld' in field.lower():
+                        elif 'tax' in orig_field_name.lower() or 'withheld' in orig_field_name.lower():
                             suggestions.append({
-                                'pattern': f'{re.escape(field)}[:\\s]*\\$?([\\d,.]+)',
+                                'pattern': f'{re.escape(orig_field_name)}[:\\s]*\\$?([\\d,.]+)',
                                 'description': 'Generic tax field pattern'
                             })
+                    
                     # Copy-paste ready code
-                    wi_patterns_snippet = f'    "{field}": r"{current_regex}"'
+                    wi_patterns_snippet = f'    "{orig_field_name}": r"{current_regex}"'
+                    
                     case_report.append({
                         'case_id': case_id,
-                        'year': year,
-                        'form_type': form_type,
+                        'file_name': file_name,
+                        'form_type': canonical_form,
                         'form_index': form_idx,
-                        'field': field,
-                        'extracted_value': value_str,
+                        'field': orig_field_name,
+                        'extracted_value': str(field_value),
                         'current_regex': current_regex,
+                        'source_line': source_line,
+                        'confidence_score': confidence,
                         'matches': match_info,
+                        'raw_text_matches': raw_text_matches,
                         'found_expected': found_expected,
                         'suggestions': suggestions,
                         'wi_patterns_snippet': wi_patterns_snippet
                     })
+        
         results[case_id] = case_report
+    
     return results 

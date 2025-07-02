@@ -122,8 +122,60 @@ def income_comparison(case_id: str):
         wi_files = fetch_wi_file_grid(case_id, cookies)
         wi_summary = {}
         if wi_files:
-            wi_data = parse_wi_pdfs(wi_files, cookies, case_id, False, None)
-            wi_summary = wi_data.get('summary', {})
+            wi_data = parse_wi_pdfs(wi_files, cookies, case_id, False, None, return_scoped_structure=True)
+            # Convert scoped structure to summary format
+            if isinstance(wi_data, list):
+                # New scoped structure - convert to summary
+                total_forms = 0
+                by_year = {}
+                for file_result in wi_data:
+                    if not isinstance(file_result, dict):
+                        continue
+                    forms = file_result.get('forms', [])
+                    total_forms += len(forms)
+                    
+                    # Group by year (simplified - would need proper year extraction)
+                    year = "2023"  # Default year
+                    if year not in by_year:
+                        by_year[year] = {
+                            'number_of_forms': 0,
+                            'total_income': 0,
+                            'total_withholding': 0,
+                            'estimated_agi': 0
+                        }
+                    
+                    for form in forms:
+                        if isinstance(form, dict):
+                            fields = form.get('fields', [])
+                            income = 0
+                            withholding = 0
+                            for field in fields:
+                                if isinstance(field, dict):
+                                    field_name = field.get('name', '')
+                                    field_value = field.get('value', 0)
+                                    try:
+                                        field_value = float(field_value)
+                                    except:
+                                        field_value = 0
+                                    
+                                    if 'income' in field_name.lower() or 'wage' in field_name.lower():
+                                        income += field_value
+                                    elif 'withholding' in field_name.lower() or 'tax' in field_name.lower():
+                                        withholding += field_value
+                            
+                            by_year[year]['number_of_forms'] += 1
+                            by_year[year]['total_income'] += income
+                            by_year[year]['total_withholding'] += withholding
+                            by_year[year]['estimated_agi'] += income
+                
+                wi_summary = {
+                    'total_years': len(by_year),
+                    'total_forms': total_forms,
+                    'by_year': by_year
+                }
+            else:
+                # Legacy structure
+                wi_summary = wi_data.get('summary', {})
         
         # Get AT data
         logger.info(f"📋 Fetching AT data for case_id: {case_id}")

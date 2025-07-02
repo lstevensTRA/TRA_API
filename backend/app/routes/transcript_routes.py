@@ -60,8 +60,8 @@ def get_raw_wi_data(
         if not wi_files:
             raise HTTPException(status_code=404, detail="404: No WI files found for this case.")
         
-        # Parse WI PDFs
-        wi_data = parse_wi_pdfs(wi_files, cookies, case_id, include_tps_analysis, filing_status)
+        # Parse WI PDFs with new scoped parsing
+        wi_data = parse_wi_pdfs(wi_files, cookies, case_id, include_tps_analysis, filing_status, return_scoped_structure=True)
         
         # Remove summary if present (keep only raw data)
         if 'summary' in wi_data:
