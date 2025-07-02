@@ -15,8 +15,8 @@ from datetime import datetime
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import tensorflow as tf
-from tensorflow import keras
+# import tensorflow as tf
+# from tensorflow import keras
 
 from app.models.pattern_learning_models import (
     PatternType, FieldType, ConfidenceLevel, PatternPerformance, 
@@ -48,27 +48,11 @@ class PatternLearningSystem:
     
     def _initialize_models(self):
         """Initialize ML models for confidence scoring and pattern learning"""
-        try:
-            # Simple neural network for confidence scoring
-            self.confidence_model = keras.Sequential([
-                keras.layers.Dense(64, activation='relu', input_shape=(10,)),
-                keras.layers.Dropout(0.2),
-                keras.layers.Dense(32, activation='relu'),
-                keras.layers.Dropout(0.2),
-                keras.layers.Dense(1, activation='sigmoid')
-            ])
-            
-            self.confidence_model.compile(
-                optimizer='adam',
-                loss='binary_crossentropy',
-                metrics=['accuracy']
-            )
-            
-            logger.info("✅ ML models initialized successfully")
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Could not initialize ML models: {e}")
-            self.confidence_model = None
+        logger.warning("⚠️ TensorFlow is disabled. ML models will not be initialized.")
+        self.confidence_model = None
+        # self.similarity_model = None
+        # self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        # self._load_existing_patterns()
     
     def _load_existing_patterns(self):
         """Load existing regex patterns from the current system"""
@@ -524,91 +508,12 @@ class PatternLearningSystem:
         return True
 
     def train(self, training_data: list, field_name: str, epochs: int = 5):
-        """
-        Train a simple TensorFlow model to predict the value for a specific WI field.
-        Args:
-            training_data: List of dicts with keys 'text' and 'label' (the correct value for the field)
-            field_name: The WI field to train on (e.g., 'Wages')
-            epochs: Number of training epochs
-        """
-        import tensorflow as tf
-        from tensorflow import keras
-        from sklearn.model_selection import train_test_split
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        import numpy as np
-        import os
-
-        # Prepare data
-        texts = [ex['text'] for ex in training_data]
-        labels = [ex['label'] for ex in training_data]
-        
-        # For demo: treat as classification if < 100 unique labels, else regression
-        unique_labels = list(set(labels))
-        is_classification = len(unique_labels) < 100
-
-        # Vectorize text
-        vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
-        X = vectorizer.fit_transform(texts).toarray()
-        
-        if is_classification:
-            label_to_idx = {label: i for i, label in enumerate(unique_labels)}
-            y = np.array([label_to_idx[label] for label in labels])
-            num_classes = len(unique_labels)
-        else:
-            # Regression: try to convert to float
-            y = np.array([float(label.replace(',', '').replace('$', '')) if label else 0.0 for label in labels])
-
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-
-        # Build model
-        model = keras.Sequential([
-            keras.layers.Input(shape=(X.shape[1],)),
-            keras.layers.Dense(64, activation='relu'),
-            keras.layers.Dropout(0.2),
-            keras.layers.Dense(32, activation='relu'),
-            keras.layers.Dropout(0.2),
-            keras.layers.Dense(num_classes if is_classification else 1, activation='softmax' if is_classification else 'linear')
-        ])
-        model.compile(
-            optimizer='adam',
-            loss='sparse_categorical_crossentropy' if is_classification else 'mse',
-            metrics=['accuracy'] if is_classification else ['mse']
-        )
-
-        # Train
-        model.fit(X_train, y_train, epochs=epochs, validation_data=(X_val, y_val), verbose=2)
-
-        # Save model and vectorizer
-        model_dir = f"pattern_learning_models/{field_name}"
-        os.makedirs(model_dir, exist_ok=True)
-        model.save(os.path.join(model_dir, 'model.h5'))
-        import pickle
-        with open(os.path.join(model_dir, 'vectorizer.pkl'), 'wb') as f:
-            pickle.dump(vectorizer, f)
-        if is_classification:
-            with open(os.path.join(model_dir, 'label_to_idx.pkl'), 'wb') as f:
-                pickle.dump(label_to_idx, f)
-
-        print(f"Model for field '{field_name}' trained and saved to {model_dir}")
+        logger.warning("⚠️ TensorFlow training is disabled. No model will be trained.")
+        return
 
     def load_model(self, field_name: str):
-        """
-        Load a trained model and vectorizer for a specific field.
-        """
-        import tensorflow as tf
-        import os
-        import pickle
-        model_dir = f"pattern_learning_models/{field_name}"
-        model = tf.keras.models.load_model(os.path.join(model_dir, 'model.h5'))
-        with open(os.path.join(model_dir, 'vectorizer.pkl'), 'rb') as f:
-            vectorizer = pickle.load(f)
-        label_to_idx = None
-        try:
-            with open(os.path.join(model_dir, 'label_to_idx.pkl'), 'rb') as f:
-                label_to_idx = pickle.load(f)
-        except FileNotFoundError:
-            pass
-        return model, vectorizer, label_to_idx
+        logger.warning("⚠️ TensorFlow model loading is disabled. No model will be loaded.")
+        return None, None, None
 
 def fetch_wi_training_data(field_name: str, supabase=None, limit: int = 1000):
     """
