@@ -742,8 +742,8 @@ class SMSLogsResponse(BaseModel):
     case_id: int
     logs: List[SMSLog]
 
-    class Config:
-        schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "case_id": 1124144,
                 "logs": [
@@ -761,4 +761,141 @@ class SMSLogsResponse(BaseModel):
                     }
                 ]
             }
-        } 
+        }
+    }
+
+# New response models for missing endpoints
+class RawDataResponse(BaseModel):
+    case_id: str
+    data: Dict[str, Any]
+    data_type: str
+    file_count: int
+    extracted_at: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "case_id": "123456",
+                "data": {"raw_text": "Sample transcript data..."},
+                "data_type": "WI",
+                "file_count": 2,
+                "extracted_at": "2024-01-15T10:30:00"
+            }
+        }
+    }
+
+class FileDownloadResponse(BaseModel):
+    filename: str
+    file_size: int
+    content_type: str
+    download_url: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "filename": "WI_2021.pdf",
+                "file_size": 1024000,
+                "content_type": "application/pdf",
+                "download_url": "/transcripts/download/wi/123456/abc123"
+            }
+        }
+    }
+
+class ParsedFileResponse(BaseModel):
+    case_id: str
+    case_document_id: str
+    filename: str
+    parsed_data: Dict[str, Any]
+    metadata: Dict[str, Any]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "case_id": "123456",
+                "case_document_id": "abc123",
+                "filename": "WI_2021.pdf",
+                "parsed_data": {"forms": []},
+                "metadata": {"parsed_at": "2024-01-15T10:30:00"}
+            }
+        }
+    }
+
+class BatchProcessingResponse(BaseModel):
+    batch_id: str
+    total_cases: int
+    status: str
+    message: str
+    started_at: str
+    transcript_types: Optional[List[str]] = None
+    use_scoped_parsing: Optional[bool] = None
+    include_activities: Optional[bool] = None
+    include_resolution: Optional[bool] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "batch_id": "batch_20240115_103000",
+                "total_cases": 10,
+                "status": "processing",
+                "message": "Batch processing started for 10 cases",
+                "started_at": "2024-01-15T10:30:00",
+                "transcript_types": ["WI", "AT"],
+                "use_scoped_parsing": True
+            }
+        }
+    }
+
+class CasesByStatusResponse(BaseModel):
+    status_id: int
+    total_cases: int
+    case_ids: List[int]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "status_id": 349,
+                "total_cases": 5,
+                "case_ids": [123, 456, 789, 1011, 1213]
+            }
+        }
+    }
+
+class PricingModelResponse(BaseModel):
+    case_id: str
+    product_id: int
+    pricing_data: Dict[str, Any]
+    analysis_included: bool
+    generated_at: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "case_id": "123456",
+                "product_id": 1,
+                "pricing_data": {"base_price": 500, "addons": []},
+                "analysis_included": True,
+                "generated_at": "2024-01-15T10:30:00"
+            }
+        }
+    }
+
+class RegexReviewResponse(BaseModel):
+    case_id: str
+    raw_text_length: int
+    structured_forms: int
+    field_matches: List[Dict[str, Any]]
+    suggestions: List[str]
+    confidence_scores: Dict[str, float]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "case_id": "123456",
+                "raw_text_length": 5000,
+                "structured_forms": 3,
+                "field_matches": [{"field": "Wages", "value": "50000", "confidence": 0.9}],
+                "suggestions": ["Consider adding more flexible regex patterns"],
+                "confidence_scores": {"Wages": 0.9, "Federal Withholding": 0.8}
+            }
+        }
+    } 

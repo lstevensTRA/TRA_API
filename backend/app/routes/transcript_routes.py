@@ -16,7 +16,7 @@ import io
 import httpx
 import json
 import time
-from app.models.response_models import WITranscriptResponse, ATTranscriptResponse, SuccessResponse, AllTranscriptsResponse
+from app.models.response_models import WITranscriptResponse, ATTranscriptResponse, SuccessResponse, AllTranscriptsResponse, RawDataResponse, FileDownloadResponse, ParsedFileResponse
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ def test_transcript_endpoint(case_id: str):
     """
     return SuccessResponse(message="Transcript routes module loaded", status="success", data={"case_id": case_id})
 
-@router.get("/raw/wi/{case_id}", tags=["Transcripts"])
+@router.get("/raw/wi/{case_id}", tags=["Transcripts"], response_model=RawDataResponse)
 def get_raw_wi_data(
     case_id: str,
     include_tps_analysis: Optional[bool] = Query(False, description="Include TP/S analysis in response"),
@@ -76,7 +76,7 @@ def get_raw_wi_data(
         logger.error(f"❌ Error getting raw WI data for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/raw/at/{case_id}", tags=["Transcripts"])
+@router.get("/raw/at/{case_id}", tags=["Transcripts"], response_model=RawDataResponse)
 def get_raw_at_data(
     case_id: str,
     include_tps_analysis: Optional[bool] = Query(False, description="Include TP/S analysis in response"),
@@ -119,7 +119,7 @@ def get_raw_at_data(
 
 # --- Individual File Download Endpoints ---
 
-@router.get("/download/wi/{case_id}/{case_document_id}", tags=["Transcripts"])
+@router.get("/download/wi/{case_id}/{case_document_id}", tags=["Transcripts"], response_model=FileDownloadResponse)
 def download_wi_file(case_id: str, case_document_id: str):
     """
     Download a specific WI PDF file by its CaseDocumentID.
@@ -158,7 +158,7 @@ def download_wi_file(case_id: str, case_document_id: str):
         logger.error(f"❌ Error downloading WI file for case_id {case_id}, case_document_id {case_document_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/download/at/{case_id}/{case_document_id}", tags=["Transcripts"])
+@router.get("/download/at/{case_id}/{case_document_id}", tags=["Transcripts"], response_model=FileDownloadResponse)
 def download_at_file(case_id: str, case_document_id: str):
     """
     Download a specific AT PDF file by its CaseDocumentID.
@@ -277,7 +277,7 @@ def parse_single_at_file(case_id: str, case_document_id: str, filename: str, coo
         logger.error(f"❌ Error parsing AT file {filename}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/parse/wi/{case_id}/{case_document_id}", tags=["Transcripts"])
+@router.get("/parse/wi/{case_id}/{case_document_id}", tags=["Transcripts"], response_model=ParsedFileResponse)
 def parse_wi_file(case_id: str, case_document_id: str):
     """
     Parse a specific WI PDF file by its CaseDocumentID.
@@ -320,7 +320,7 @@ def parse_wi_file(case_id: str, case_document_id: str):
         logger.error(f"❌ Error parsing WI file for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/parse/at/{case_id}/{case_document_id}", tags=["Transcripts"])
+@router.get("/parse/at/{case_id}/{case_document_id}", tags=["Transcripts"], response_model=ParsedFileResponse)
 def parse_at_file(case_id: str, case_document_id: str):
     """
     Parse a specific AT PDF file by its CaseDocumentID.

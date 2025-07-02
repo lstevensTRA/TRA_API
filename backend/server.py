@@ -60,7 +60,7 @@ app.include_router(case_management_routes.router, prefix="/case-management", tag
 app.include_router(tax_investigation_routes_new.router, prefix="/tax-investigation", tags=["Tax Investigation"])
 app.include_router(closing_letters_routes.router, prefix="/closing-letters", tags=["Closing Letters"])
 app.include_router(batch_routes.router, prefix="/batch", tags=["Batch Processing"])
-app.include_router(client_profile.router, prefix="/client_profile", tags=["Client Profile"])
+app.include_router(client_profile.router, prefix="/client-profile", tags=["Client Profile"])
 app.include_router(irs_standards_routes.router, prefix="/irs-standards", tags=["IRS Standards"])
 app.include_router(disposable_income_routes.router, prefix="/disposable-income", tags=["Disposable Income"])
 app.include_router(test_routes.router, prefix="/test", tags=["Test"])
@@ -73,7 +73,7 @@ app.include_router(case_data_routes.router, prefix="/case-data", tags=["Case Dat
 async def root():
     return {"message": "TRA API Backend is running", "version": "1.0.0"}
 
-@app.post("/predict_wi", tags=["ML Backend"])
+@app.post("/predict_wi", tags=["Analysis"])
 async def predict_wi(request: Request):
     """
     Predict WI form fields for Label Studio ML backend integration or for a list of case IDs.

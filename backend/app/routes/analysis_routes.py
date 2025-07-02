@@ -8,7 +8,7 @@ from app.utils.tps_parser import TPSParser
 from app.utils.client_info import extract_client_info_from_logiqs
 from app.models.response_models import (
     WIAnalysisResponse, ATAnalysisResponse, ComprehensiveAnalysisResponse, 
-    ClientAnalysisResponse, ErrorResponse, WIFormData
+    ClientAnalysisResponse, ErrorResponse, WIFormData, PricingModelResponse, RegexReviewResponse
 )
 from datetime import datetime
 from app.utils.wi_patterns import form_patterns
@@ -492,7 +492,7 @@ def get_client_analysis(case_id: str):
         logger.error(f"❌ Error performing client analysis for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/pricing-model/{case_id}", tags=["Analysis"])
+@router.get("/pricing-model/{case_id}", tags=["Analysis"], response_model=PricingModelResponse)
 def pricing_model(
     case_id: str,
     product_id: Optional[int] = Query(1, description="Product ID for Logiqs case"),
@@ -574,7 +574,7 @@ def batch_wi_structured(
             results[case_id] = {"error": str(e)}
     return results
 
-@router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases using new scoped parsing.")
+@router.post("/regex-review/batch/wi", tags=["Regex Review"], summary="Batch WI regex review", description="Review regex extraction for WI forms across multiple cases using new scoped parsing.", response_model=List[RegexReviewResponse])
 async def batch_regex_review_wi(case_ids: list = Body(..., embed=True)):
     """
     For each case, fetch raw WI text and structured WI data using new scoped parsing, compare regex extraction, and suggest improvements.

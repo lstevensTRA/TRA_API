@@ -9,7 +9,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from app.models.response_models import (
     BatchStatusResponse, CompletedCasesResponse, BatchAnalysisResponse, 
-    CSVExportResponse, ErrorResponse
+    CSVExportResponse, ErrorResponse, BatchProcessingResponse, CasesByStatusResponse
 )
 from app.services.wi_service import fetch_wi_file_grid, download_wi_pdf, parse_transcript_scoped
 from app.utils.pdf_utils import extract_text_from_pdf
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.post("/income-comparison", tags=["Batch Processing"])
+@router.post("/income-comparison", tags=["Batch Processing"], response_model=BatchProcessingResponse)
 async def batch_income_comparison(
     case_ids: List[str],
     background_tasks: BackgroundTasks
@@ -116,7 +116,7 @@ def get_batch_status(batch_id: str):
     logger.info(f"✅ Retrieved batch status for batch_id: {batch_id}")
     return result
 
-@router.post("/transcript-analysis", tags=["Batch Processing"])
+@router.post("/transcript-analysis", tags=["Batch Processing"], response_model=BatchProcessingResponse)
 async def batch_transcript_analysis(
     case_ids: List[str],
     background_tasks: BackgroundTasks,
@@ -165,7 +165,7 @@ async def batch_transcript_analysis(
         logger.error(f"❌ Error starting batch transcript analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.post("/case-summary", tags=["Batch Processing"])
+@router.post("/case-summary", tags=["Batch Processing"], response_model=BatchProcessingResponse)
 async def batch_case_summary(
     case_ids: List[str],
     background_tasks: BackgroundTasks,
@@ -212,7 +212,7 @@ async def batch_case_summary(
         logger.error(f"❌ Error starting batch case summary: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.get("/cases/by_status/{status_id}", tags=["Batch Processing"])
+@router.get("/cases/by_status/{status_id}", tags=["Batch Processing"], response_model=CasesByStatusResponse)
 def get_cases_by_status(status_id: int):
     """
     Get all case IDs with the given status_id from Logiqs API.
