@@ -90,17 +90,17 @@ def test_raw_wi_endpoint(case_id: str):
             }
         )
 
-@router.get("/raw/wi/{case_id}", tags=["Transcripts"])
-def get_raw_wi_data(
+@router.get("/structured/wi/{case_id}", tags=["Transcripts"])
+def get_structured_wi_data(
     case_id: str,
     include_tps_analysis: Optional[bool] = Query(False, description="Include TP/S analysis in response"),
     filing_status: Optional[str] = Query(None, description="Client filing status for TP/S analysis")
 ):
     """
-    Get raw parsed WI data without summary calculations.
-    Returns the same data as /wi/{case_id} but without the summary section.
+    Get structured WI data with scoped parsing, confidence scores, and field extractions.
+    Returns processed data with metadata, form blocks, and extracted fields.
     """
-    logger.info(f"🔍 Received raw WI data request for case_id: {case_id}")
+    logger.info(f"🔍 Received structured WI data request for case_id: {case_id}")
     
     # Check authentication
     if not cookies_exist():
@@ -129,13 +129,91 @@ def get_raw_wi_data(
             "extracted_at": datetime.now().isoformat()
         }
         
-        logger.info(f"✅ Successfully returned raw WI data for case_id: {case_id}")
+        logger.info(f"✅ Successfully returned structured WI data for case_id: {case_id}")
         return response_data
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting raw WI data for case_id {case_id}: {str(e)}")
+        logger.error(f"❌ Error getting structured WI data for case_id {case_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/raw/wi/{case_id}", tags=["Transcripts"])
+def get_raw_wi_text(
+    case_id: str
+):
+    """
+    Get actual raw text content from WI PDF files.
+    Returns the unprocessed text extracted from the PDFs.
+    """
+    logger.info(f"🔍 Received raw WI text request for case_id: {case_id}")
+    
+    # Check authentication
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    
+    cookies = get_cookies()
+    
+    try:
+        # Fetch WI files
+        wi_files = fetch_wi_file_grid(case_id, cookies)
+        if not wi_files:
+            raise HTTPException(status_code=404, detail="404: No WI files found for this case.")
+        
+        raw_texts = []
+        
+        for i, wi_file in enumerate(wi_files):
+            file_name = wi_file["FileName"]
+            case_doc_id = wi_file["CaseDocumentID"]
+            
+            logger.info(f"📄 Processing WI file {i+1}/{len(wi_files)}: {file_name}")
+            
+            try:
+                # Download PDF
+                pdf_bytes = download_wi_pdf(case_doc_id, case_id, cookies)
+                if not pdf_bytes:
+                    logger.warning(f"⚠️ No PDF content received for {file_name}")
+                    continue
+                
+                # Extract raw text
+                text = extract_text_from_pdf(pdf_bytes)
+                if not text:
+                    logger.warning(f"⚠️ No text extracted from {file_name}")
+                    continue
+                
+                raw_texts.append({
+                    "file_name": file_name,
+                    "case_document_id": case_doc_id,
+                    "raw_text": text,
+                    "text_length": len(text)
+                })
+                
+                logger.info(f"📝 Extracted {len(text)} characters from {file_name}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error processing {file_name}: {str(e)}")
+                continue
+        
+        # Format response
+        from datetime import datetime
+        
+        response_data = {
+            "case_id": case_id,
+            "data_type": "WI_RAW_TEXT",
+            "file_count": len(wi_files),
+            "files_processed": len(raw_texts),
+            "extracted_at": datetime.now().isoformat(),
+            "raw_texts": raw_texts
+        }
+        
+        logger.info(f"✅ Successfully returned raw WI text for case_id: {case_id}")
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting raw WI text for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/raw/at/{case_id}", tags=["Transcripts"], response_model=RawDataResponse)
