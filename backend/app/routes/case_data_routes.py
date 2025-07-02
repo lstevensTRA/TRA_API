@@ -159,4 +159,66 @@ def get_case_schema(case_id: str, product_id: int = Query(1)):
 
 @router.get("/health", tags=["Case Data"], summary="Health check", description="Health check endpoint.")
 def health_check():
-    return {"status": "OK", "timestamp": datetime.now().isoformat()} 
+    return {"status": "OK", "timestamp": datetime.now().isoformat()}
+
+@router.get("/api/case/search", tags=["Case Data"], summary="Search cases by query string", description="Search Logiqs cases using the Search.aspx page and return results.")
+def search_cases(query: str = Query(..., description="Search string for Logiqs case search")):
+    search_url = f"https://tps.logiqs.com/Cases/Search.aspx?search={query}"
+    logger.info(f"Searching Logiqs cases with query: {query}")
+    try:
+        response = requests.get(search_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }, timeout=30)
+        html = response.text
+        # Optionally, try to parse results if the HTML contains a table of cases
+        # For now, just return the raw HTML
+        return {
+            "success": True,
+            "query": query,
+            "searchUrl": search_url,
+            "rawHtml": html
+        }
+    except Exception as e:
+        logger.error(f"Error searching Logiqs cases: {e}")
+        raise HTTPException(status_code=500, detail={
+            "success": False,
+            "error": "Failed to search Logiqs cases",
+            "message": str(e)
+        })
+
+@router.get("/api/case/{case_id}/connected", tags=["Case Data"], summary="Get connected cases", description="Fetch connected cases for a given caseId from Logiqs API.")
+def get_connected_cases(case_id: str):
+    api_url = f"https://tps.logiqs.com/API/Case/GetConnectedCases?caseId={case_id}"
+    logger.info(f"Fetching connected cases from: {api_url}")
+    try:
+        response = requests.get(api_url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'X-Requested-With': 'XMLHttpRequest'
+        }, timeout=30)
+        # Try to parse as JSON
+        try:
+            data = response.json()
+        except Exception as e:
+            logger.error(f"Error parsing connected cases JSON: {e}")
+            data = {"raw": response.text}
+        return {
+            "success": True,
+            "caseId": case_id,
+            "data": data
+        }
+    except Exception as e:
+        logger.error(f"Error fetching connected cases: {e}")
+        raise HTTPException(status_code=500, detail={
+            "success": False,
+            "error": "Failed to fetch connected cases",
+            "message": str(e)
+        }) 
