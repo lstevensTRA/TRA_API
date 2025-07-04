@@ -310,7 +310,6 @@ def extract_at_data(text):
         'account_balance': r'(?:ACCOUNT BALANCE|Account balance)[:\s]*[\$]?([\d,\.\-]+)',
         'accrued_interest': r'(?:ACCRUED INTEREST|Accrued interest)[:\s]*[\$]?([\d,\.\-]+)',
         'accrued_penalty': r'(?:ACCRUED PENALTY|Accrued penalty)[:\s]*[\$]?([\d,\.\-]+)',
-        'total_balance': r'(?:ACCOUNT BALANCE PLUS ACCRUALS|Account balance plus accruals).*?:[\s]*[\$]?([\d,\.\-]+)',
         'adjusted_gross_income': r'(?:ADJUSTED GROSS INCOME|Adjusted gross income)[:\s]*[\$]?([\d,\.\-]+)',
         'taxable_income': r'(?:TAXABLE INCOME|Taxable income)[:\s]*[\$]?([\d,\.\-]+)',
         'tax_per_return': r'(?:TAX PER RETURN|Tax per return)[:\s]*[\$]?([\d,\.\-]+)',
@@ -331,22 +330,83 @@ def extract_at_data(text):
         else:
             logger.warning(f"No match found for {key}")
             data[key] = 0.00
-    # Extract filing status
-    filing_match = re.search(r'(?:FILING STATUS|Filing status)[:\s]*([^,\n]+)', text, re.IGNORECASE)
-    if filing_match:
-        data['filing_status'] = filing_match.group(1).strip()
+    
+    # Calculate total_balance as sum of account_balance + accrued_interest + accrued_penalty
+    total_balance = data.get('account_balance', 0.0) + data.get('accrued_interest', 0.0) + data.get('accrued_penalty', 0.0)
+    data['total_balance'] = total_balance
+    logger.info(f"Calculated total_balance: {total_balance} (account: {data.get('account_balance', 0.0)} + interest: {data.get('accrued_interest', 0.0)} + penalty: {data.get('accrued_penalty', 0.0)})")
+    # Extract filing status - make it more robust
+    filing_patterns = [
+        r'(?:FILING STATUS|Filing status)[:\s]*([^,\n]+)',
+        r'FILING STATUS[:\s]*([^,\n]+)',
+        r'Filing status[:\s]*([^,\n]+)',
+        r'Filing Status[:\s]*([^,\n]+)',
+        # Look for filing status near the top of the document
+        r'([A-Za-z\s]+(?:Filing|Joint|Single|Married|Head|Widow))'
+    ]
+    
+    filing_status_found = False
+    for i, pattern in enumerate(filing_patterns):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            filing_status = match.group(1).strip()
+            # Clean up the filing status
+            if filing_status:
+                data['filing_status'] = filing_status
+                logger.info(f"Found filing_status (pattern {i+1}): {filing_status}")
+                filing_status_found = True
+                break
+    
+    if not filing_status_found:
+        logger.warning(f"No filing_status found in text. Setting to 'Unknown'. Text preview: {text[:200]}...")
+        data['filing_status'] = "Unknown"
     # Extract processing date (robust to all formats)
-    processing_match = re.search(r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})', text)
-    if processing_match:
-        data['processing_date'] = processing_match.group(1)
-        logger.info(f"Found processing date: {data['processing_date']}")
-    else:
-        alt_processing_match = re.search(r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2}\s+\d{4})', text)
-        if alt_processing_match:
-            data['processing_date'] = alt_processing_match.group(1)
-            logger.info(f"Found processing date (alt format): {data['processing_date']}")
-        else:
-            logger.warning("No processing date found")
+    processing_patterns = [
+        # Standard format: "PROCESSING DATE: January 15, 2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # Alternative format: "PROCESSING DATE: Jan 15, 2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # No comma format: "PROCESSING DATE: January 15 2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2}\s+\d{4})',
+        # Abbreviated month: "PROCESSING DATE: Jan. 15, 2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.\s+\d{1,2},?\s*\d{4})',
+        # Different spacing: "PROCESSING DATE:January 15, 2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # With extra spaces: "PROCESSING DATE:  January  15,  2024"
+        r'(?:PROCESSING DATE|Processing date)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # Different case variations
+        r'(?:processing date|Processing Date|PROCESSING DATE)[:\s]*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # Look for date patterns near "PROCESSING" keyword
+        r'PROCESSING[^:]*:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # Look for date patterns near "DATE" keyword
+        r'DATE[^:]*:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})',
+        # Fallback: look for any date pattern in the header area
+        r'([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})'
+    ]
+    
+    processing_date_found = False
+    for i, pattern in enumerate(processing_patterns):
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            # Additional validation: make sure it's actually a date and not some other field
+            date_text = match.group(1).strip()
+            
+            # Skip if it looks like a tax year or other non-processing date
+            if re.match(r'^\d{4}$', date_text):  # Skip if just a year
+                continue
+            if 'TAX PERIOD' in text and date_text in text.split('TAX PERIOD')[0]:  # Skip if in tax period section
+                continue
+            if 'REPORT FOR TAX PERIOD' in text and date_text in text.split('REPORT FOR TAX PERIOD')[0]:  # Skip if in report section
+                continue
+            
+            data['processing_date'] = date_text
+            logger.info(f"Found processing date (pattern {i+1}): {data['processing_date']}")
+            processing_date_found = True
+            break
+    
+    if not processing_date_found:
+        logger.warning("No processing date found with any pattern")
+        data['processing_date'] = None
     # Extract transactions
     data['transactions'] = extract_at_transactions(text)
     return data

@@ -539,3 +539,85 @@ def generate_income_comparison_pdf(comparison_data: Dict[str, Any]) -> str:
     except Exception as e:
         logger.error(f"❌ Error generating income comparison PDF: {str(e)}")
         raise 
+
+def parse_ti_text(raw_text: str) -> dict:
+    """
+    Parse raw TI text into structured JSON with client_info, summary, years, and resolution highlights.
+    """
+    import re
+    from datetime import datetime
+    
+    # Helper to extract a value by regex
+    def extract(pattern, text, group=1, default=None, flags=0):
+        m = re.search(pattern, text, flags)
+        return m.group(group).strip() if m else default
+
+    # Extract client info
+    client_info = {
+        "opening_investigator": extract(r"Opening Investigator\s*([\w .'-]+)", raw_text),
+        "case_number": extract(r"Case #\s*(\d+)", raw_text),
+        "client_name": extract(r"Client Name\s*([\w .'-]+)", raw_text),
+        "date_ti_completed": extract(r"Date TI Completed\s*([\d/\-]+)", raw_text),
+        "current_tax_liability": float(extract(r"Current Tax Liability\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "current_and_projected_tax_liability": float(extract(r"Current & Projected Tax Liability\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "total_resolution_fees": float(extract(r"Total Resolution Fees\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "resolution_plan_completed_by": extract(r"Resolution Plan Completed by:([\w .'-]+)", raw_text),
+        "date_reso_plan_completed": extract(r"Date RESO Plan Completed:([\d/\-]+)", raw_text),
+        "settlement_officer": extract(r"Settlement Officer:([\w .'-]+)", raw_text),
+        "tra_code": extract(r"TRA Code:([\w\d]+)", raw_text)
+    }
+
+    # Extract summary
+    summary = {
+        "total_individual_balance": float(extract(r"Total Individual Balance:\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "projected_unfiled_balances": float(extract(r"Projected Unfiled Balances:\$([\d,\.]+)", raw_text, 1, "0").replace(",", ""))
+    }
+
+    # Extract years table (very basic, can be improved)
+    years = []
+    table_match = re.search(r"Tax Years.*?Notes(.*?)(?:Print Amendment Sheet|Resolution Highlights|$)", raw_text, re.DOTALL)
+    if table_match:
+        table_text = table_match.group(1)
+        for row in table_text.split("\n"):
+            # Skip empty or header rows
+            if not row.strip() or re.match(r"^\s*Tax Years", row):
+                continue
+            # Try to extract year and columns
+            cols = re.split(r"\s{2,}|\t|(?<=\$)\s+", row.strip())
+            if len(cols) < 3:
+                continue
+            # Try to parse columns by position (fragile, but works for most cases)
+            year = extract(r"(\d{4})", cols[0])
+            if not year:
+                continue
+            years.append({
+                "tax_year": int(year),
+                "return_filed": cols[1] if len(cols) > 1 else "",
+                "filing_status": cols[2] if len(cols) > 2 else "",
+                "current_balance": float(cols[3].replace("$", "").replace(",", "")) if len(cols) > 3 and "$" in cols[3] else 0.0,
+                "csed_date": cols[4] if len(cols) > 4 else "",
+                "reason": cols[5] if len(cols) > 5 else "",
+                "status": cols[6] if len(cols) > 6 else "",
+                "legal_action": cols[7] if len(cols) > 7 else "",
+                "projected_balance": float(cols[8].replace("$", "").replace(",", "")) if len(cols) > 8 and "$" in cols[8] else 0.0,
+                "wage_information": [w.strip() for w in cols[9:12] if w.strip()] if len(cols) > 9 else [],
+                "notes": cols[12] if len(cols) > 12 else ""
+            })
+
+    # Extract resolution highlights and interest cost
+    highlights = {}
+    highlights["total_timeframe_months"] = int(extract(r"Total Timeframe(\d+) Months", raw_text, 1, "0"))
+    highlights["compliance_phase_months"] = int(extract(r"Compliance and Tax Preparation(\d+) Months", raw_text, 1, "0"))
+    highlights["resolution_phase_months"] = int(extract(r"Resolution Phase\n(\d+)\n", raw_text, 1, "0"))
+    highlights["interest_cost"] = {
+        "daily": float(extract(r"Daily:\s*\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "monthly": float(extract(r"Monthly:\s*\$([\d,\.]+)", raw_text, 1, "0").replace(",", "")),
+        "yearly": float(extract(r"Yearly:\s*\$([\d,\.]+)", raw_text, 1, "0").replace(",", ""))
+    }
+
+    return {
+        "client_info": client_info,
+        "summary": summary,
+        "years": years,
+        "resolution_highlights": highlights
+    } 

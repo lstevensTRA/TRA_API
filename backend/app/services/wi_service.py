@@ -6,6 +6,7 @@ from app.utils.pdf_utils import extract_text_from_pdf
 from app.utils.wi_patterns import form_patterns
 from app.utils.tps_parser import TPSParser
 import json
+import inspect
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -223,8 +224,8 @@ def calculate_summary(all_data: Dict[str, List[Dict[str, Any]]]) -> Dict[str, An
         nonse_income = sum(form.get('Income', 0) for form in year_forms if form.get('Category') == 'Non-SE' and form.get('Income') is not None)
         nonse_withholding = sum(form.get('Withholding', 0) for form in year_forms if form.get('Category') == 'Non-SE' and form.get('Withholding') is not None)
         
-        other_income = sum(form.get('Income', 0) for form in year_forms if form.get('Category') == 'Neither' and form.get('Income') is not None)
-        other_withholding = sum(form.get('Withholding', 0) for form in year_forms if form.get('Category') == 'Neither' and form.get('Withholding') is not None)
+        other_income = sum(form.get('Income', 0) for form in year_forms if form.get('Category') in ('Other', 'Neither') and form.get('Income') is not None)
+        other_withholding = sum(form.get('Withholding', 0) for form in year_forms if form.get('Category') in ('Other', 'Neither') and form.get('Withholding') is not None)
         
         total_income = se_income + nonse_income + other_income
         total_withholding = se_withholding + nonse_withholding + other_withholding
@@ -363,6 +364,169 @@ def extract_enhanced_payer_blurb(form_text: str, form_name: str, unique_id: str 
     logger.debug(f"⚠️ Could not extract payer blurb for {form_name}")
     return None
 
+def parse_form_block(block_text, form_type, file_name, tracking_number, tax_year):
+    """
+    Parse a single form block using only the regexes for the detected form_type.
+    Returns a structured dict as specified.
+    Adds deep debug prints for each field regex and block text sample.
+    Uses case-insensitive matching for better field extraction.
+    """
+    print(f"\n[DEEP DEBUG] === Parsing block for form_type: {form_type} in file: {file_name} ===")
+    print(f"[DEEP DEBUG] Full block text:\n{block_text}\n---END BLOCK---\n")
+    pattern_info = form_patterns.get(form_type)
+    if not pattern_info:
+        print(f"[DEEP DEBUG] No pattern_info for form_type: {form_type}")
+        return None
+    
+    fields = []
+    field_patterns = pattern_info.get('fields', {})
+    
+    for field_key, regex in field_patterns.items():
+        if not regex:
+            continue
+        print(f"[DEEP DEBUG] Trying field '{field_key}' with regex: {regex}")
+        try:
+            match = re.search(regex, block_text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                value = match.group(1) if match.group(1) else match.group(2) if len(match.groups()) > 1 else match.group(0)
+                source_line = match.group(0)
+                print(f"[DEEP DEBUG]  e Matched '{field_key}': {value} from '{source_line}'")
+                fields.append({
+                    'name': field_key,
+                    'value': value,
+                    'source_line': source_line
+                })
+            else:
+                print(f"[DEEP DEBUG]  c No match for field '{field_key}' in form_type '{form_type}'.")
+                # Try line-by-line matching as fallback
+                lines = block_text.split('\n')
+                for line in lines:
+                    line_match = re.search(regex, line, re.IGNORECASE)
+                    if line_match:
+                        value = line_match.group(1) if line_match.group(1) else line_match.group(2) if len(line_match.groups()) > 1 else line_match.group(0)
+                        source_line = line_match.group(0)
+                        print(f"[DEEP DEBUG]  e Line match for '{field_key}': {value} from '{source_line}'")
+                        fields.append({
+                            'name': field_key,
+                            'value': value,
+                            'source_line': source_line
+                        })
+                        break
+        except Exception as e:
+            print(f"[DEEP DEBUG] Error matching field '{field_key}': {e}")
+    # --- Convert fields to dict for calculation and EntityName extraction ---
+    fields_data = {}
+    for field in fields:
+        field_name = field.get('name', '').replace('_', ' ').title()
+        field_value = field.get('value', '')
+        try:
+            fields_data[field_name] = float(field_value.replace(',', ''))
+        except Exception:
+            fields_data[field_name] = field_value
+    # --- EntityName extraction ---
+    pattern_identifiers = pattern_info.get('identifiers', {})
+    NAME_RGX = re.compile(r"(name|payer|employer|lender|trustee)$", re.I)
+    entity = ""
+    # 1. Try identifiers: apply regex to block_text, use first match group
+    for k, rgx in pattern_identifiers.items():
+        if NAME_RGX.search(k):
+            try:
+                m = re.search(rgx, block_text)
+                if m and m.group(1) and m.group(1).strip():
+                    entity = m.group(1).strip()
+                    break
+            except Exception:
+                continue
+    # 2. If not found, try fields: use value directly if key matches
+    if not entity:
+        for k, v in fields_data.items():
+            if NAME_RGX.search(k) and isinstance(v, str) and v.strip():
+                entity = v.strip()
+                break
+    # 3. Fallback: first all-caps 3+ char run
+    if not entity:
+        m = re.search(r"[A-Z][A-Z0-9 &.,'-]{2,120}", block_text)
+        entity = m.group(0).strip() if m else ""
+    # 4. Remove duplicate from Fields
+    for k in list(fields_data.keys()):
+        if fields_data[k] == entity:
+            del fields_data[k]
+    if not fields:
+        print(f"[DEEP DEBUG] No fields matched for form_type '{form_type}' in file: {file_name}")
+        return None
+    print(f"[DEEP DEBUG] Final parsed fields for form_type '{form_type}': {fields}\n")
+    return {
+        'Form': form_type,
+        'UniqueID': tracking_number or 'UNKNOWN',
+        'EntityName': entity,
+        'Label': 'E' if form_type == 'W-2' else 'P',
+        'Income': 0.0,  # Will be set later
+        'Withholding': 0.0,  # Will be set later
+        'Category': pattern_info.get('category', 'Other'),
+        'Fields': fields_data,
+        'Owner': 'TP',
+        'SourceFile': file_name,
+        'Year': tax_year
+    }
+
+# NOTE: This function is the main consumer of form_patterns for WI parsing.
+# All endpoints that use parse_wi_pdfs (and thus parse_transcript_scoped) will be affected by changes here.
+# Do NOT apply regexes globally—scope them to each form block as described.
+def parse_transcript_scoped(text, file_name):
+    """
+    Parse a WI transcript with form-block-scoped regex extraction.
+    Returns a list of structured form results.
+    Logs skipped blocks or unmatched forms for QA.
+    """
+    logger = logging.getLogger(__name__)
+    tracking_number_match = re.search(r"\b(\d{11,})\b", text[:500])
+    tracking_number = tracking_number_match.group(1) if tracking_number_match else None
+    tax_year_match = re.search(r"(20\d{2}|\d{2})", file_name)
+    tax_year = None
+    if tax_year_match:
+        y = tax_year_match.group(1)
+        tax_year = f"20{y}" if len(y) == 2 else y
+
+    # Dynamically build form type pattern from wi_patterns.py keys
+    form_types = [
+        r'W-2G', r'W-2', r'SSA-1099', r'1042-S', r'1098(?:-[A-Z]+)?', r'1099-(?:[A-Z]+)', r'5498(?:-[A-Z]+)?', r'3922',
+        r'Schedule\s+K-1\s+\(Form\s+(?:1065|1041|1120S)\)'
+    ]
+    # Add any additional form types from form_patterns if not already present
+    import re as _re
+    for k in form_patterns.keys():
+        if not any(_re.fullmatch(ft.replace('(?:', '(').replace(')?', ')').replace('[A-Z]+', ''), k) for ft in form_types):
+            form_types.append(_re.escape(k))
+    form_type_pattern = '|'.join(form_types)
+    # Build the segmentation regex
+    form_block_pattern = re.compile(
+        rf'(Form\s+({form_type_pattern}).*?)(?=Form\s+({form_type_pattern})|This Product Contains|\Z)',
+        re.DOTALL | re.IGNORECASE
+    )
+    results = []
+    skipped_blocks = 0
+    for match in form_block_pattern.finditer(text):
+        block_text = match.group(1)
+        # Loosen form type extraction: match 'Form W-2', 'Form 1099-G', etc., possibly with extra text after
+        form_type_match = re.search(r"Form\s+([A-Z0-9\-]+)", block_text, re.IGNORECASE)
+        form_type = form_type_match.group(1) if form_type_match else None
+        print(f"[DEBUG] Extracted form_type: {form_type}")
+        print(f"[DEBUG] Block snippet: {block_text[:120].replace('\n', ' ')}")
+        if not form_type or form_type not in form_patterns:
+            logger.info(f"[WI Parser QA] Skipped block: Could not determine form type or not in form_patterns. Block snippet: {block_text[:80]}")
+            print(f"[DEBUG] form_type not in form_patterns. Available keys: {list(form_patterns.keys())}")
+            skipped_blocks += 1
+            continue
+        parsed = parse_form_block(block_text, form_type, file_name, tracking_number, tax_year)
+        if parsed:
+            results.append(parsed)
+        else:
+            logger.info(f"[WI Parser QA] Skipped block: No fields matched for form {form_type} in file {file_name}.")
+            print(f"[DEBUG] No fields matched for form_type: {form_type}")
+            skipped_blocks += 1
+    logger.info(f"[WI Parser QA] Total skipped blocks: {skipped_blocks} for file {file_name}.")
+    return results
+
 def parse_wi_pdfs(
     wi_files: List[Dict[str, Any]],
     cookies: dict,
@@ -416,121 +580,6 @@ def parse_wi_pdfs(
             scoped_result = parse_transcript_scoped(text, file_name)
             scoped_results.append(scoped_result)
 
-            if return_scoped_structure:
-                continue  # Don't build legacy output if returning new structure
-
-            # Legacy output transformation
-            # Extract tax year from filename (e.g., "WI 19.pdf" -> "2019")
-            year_match = re.search(r'WI\s+(\d{2})', file_name)
-            if year_match:
-                year_suffix = year_match.group(1)
-                if int(year_suffix) <= 50:
-                    tax_year = f"20{year_suffix}"
-                else:
-                    tax_year = f"19{year_suffix}"
-            else:
-                year_match = re.search(r"(20\d{2})", file_name)
-                if year_match:
-                    tax_year = year_match.group(1)
-                else:
-                    year_match = re.search(r"(20\d{2})", text)
-                    tax_year = year_match.group(1) if year_match else "Unknown"
-
-            for form in scoped_result['forms']:
-                form_type = form['form_type']
-                canonical_form = None
-                for k, v in form_patterns.items():
-                    if re.search(v['pattern'], form_type, re.IGNORECASE):
-                        canonical_form = k
-                        break
-                if not canonical_form:
-                    continue
-                pattern_info = form_patterns[canonical_form]
-                fields_data = {}
-                for field in form['fields']:
-                    # Use original field name capitalization if possible
-                    orig_field_name = None
-                    for fname in pattern_info.get('fields', {}).keys():
-                        if fname.lower().replace(' ', '_') == field['name']:
-                            orig_field_name = fname
-                            break
-                    if orig_field_name:
-                        # Try to cast to float if not a string field
-                        try:
-                            if orig_field_name in ['Direct Sales Indicator', 'FATCA Filing Requirement', 'Second Notice Indicator']:
-                                fields_data[orig_field_name] = field['value']
-                            else:
-                                fields_data[orig_field_name] = float(field['value'])
-                        except Exception:
-                            fields_data[orig_field_name] = field['value']
-                    else:
-                        fields_data[field['name']] = field['value']
-                # Identifiers and label logic (legacy)
-                unique_id = None
-                label = None
-                identifiers = pattern_info.get('identifiers', {})
-                if 'EIN' in identifiers:
-                    ein_match = re.search(identifiers['EIN'], form['block_text_length'] * ' ', re.IGNORECASE)
-                    if ein_match:
-                        unique_id = ein_match.group(1)
-                elif 'FIN' in identifiers:
-                    fin_match = re.search(identifiers['FIN'], form['block_text_length'] * ' ', re.IGNORECASE)
-                    if fin_match:
-                        unique_id = fin_match.group(1)
-                if 'Employer' in identifiers:
-                    label = 'E'
-                elif 'Payer' in identifiers:
-                    label = 'P'
-                if not unique_id:
-                    if canonical_form == 'W-2':
-                        unique_id = 'UNKNOWN'
-                    elif canonical_form == '1099-INT':
-                        unique_id = 'UNKNOWN'
-                    elif canonical_form.startswith('1099'):
-                        unique_id = 'UNKNOWN'
-                if not label:
-                    if canonical_form == 'W-2':
-                        label = 'E'
-                    elif canonical_form.startswith('1099'):
-                        label = 'P'
-                # Name/SSN extraction not available in new structure, set to None
-                name = None
-                ssn = None
-                payer_blurb = extract_enhanced_payer_blurb('', canonical_form, unique_id)
-                if payer_blurb is None:
-                    payer_blurb = ""
-                calc = pattern_info.get('calculation', {})
-                income = None
-                withholding = None
-                try:
-                    if 'Income' in calc and callable(calc['Income']):
-                        income = calc['Income'](fields_data)
-                    if 'Withholding' in calc and callable(calc['Withholding']):
-                        withholding = calc['Withholding'](fields_data)
-                except Exception as e:
-                    logger.warning(f"⚠️ Error calculating income/withholding for {canonical_form}: {e}")
-                    income = 0
-                    withholding = 0
-                if withholding is None:
-                    withholding = 0
-                form_dict = {
-                    'Form': canonical_form,
-                    'UniqueID': unique_id,
-                    'Label': label,
-                    'Income': income,
-                    'Withholding': withholding,
-                    'Category': pattern_info.get('category'),
-                    'Fields': fields_data,
-                    'PayerBlurb': payer_blurb,
-                    'Owner': owner,
-                    'SourceFile': file_name,
-                    'Year': tax_year,
-                    'Name': name,
-                    'SSN': ssn
-                }
-                if tax_year not in all_data:
-                    all_data[tax_year] = []
-                all_data[tax_year].append(form_dict)
         except Exception as e:
             logger.error(f"❌ Error processing {file_name}: {str(e)}")
             logger.error(f"🔍 Error type: {type(e).__name__}")
@@ -538,28 +587,106 @@ def parse_wi_pdfs(
             logger.error(f"📋 Full traceback:\n{traceback.format_exc()}")
             continue
 
+    # If requested, return the new scoped structure directly
     if return_scoped_structure:
         logger.info("✅ Returning new scoped parsing structure for all files")
-        return scoped_results
+        # Flatten the list of lists
+        flat_results = [item for sublist in scoped_results for item in sublist]
+        logger.info(f"[DEBUG] flat_results: {json.dumps(flat_results, indent=2, default=str)[:1000]}")
+        return {'forms': flat_results}
 
-    logger.info(f"✅ PDF parsing completed. Total tax years: {len(all_data)}")
-    for tax_year, forms in all_data.items():
-        logger.info(f"   📅 {tax_year}: {len(forms)} forms")
-
-    summary = calculate_summary(all_data)
-    final_output = {
-        'summary': summary,
-        **all_data
+    # Otherwise, build years_data and summary from the parsed results
+    logger.info(f"[DEBUG] scoped_results: {json.dumps(scoped_results, indent=2, default=str)[:1000]}")
+    years_data = {}
+    all_forms = []
+    for file_result in scoped_results:
+        for form in file_result:
+            year = form.get('Year') or form.get('tax_year') or 'Unknown'
+            if year not in years_data:
+                years_data[year] = []
+            # --- Adaptive calculation for Income/Withholding ---
+            cat = form.get('Category', 'Other')
+            fields = form.get('Fields', {})
+            # Get pattern info for this form
+            pattern_info = form_patterns.get(form.get('Form', ''), {})
+            calc = pattern_info.get('calculation', {})
+            # Ensure safe defaults for SSA-1099 etc
+            filing_status = form.get('filing_status', 'Single')
+            combined_income = form.get('combined_income', 0.0)
+            # Income
+            income = 0.0
+            try:
+                if 'Income' in calc and callable(calc['Income']):
+                    income = safe_call(calc['Income'], fields, filing_status, combined_income)
+            except Exception as e:
+                logger.exception(f"⚠️ Error calculating income for {form.get('Form', '')}: {e}")
+            # Withholding
+            withholding = 0.0
+            try:
+                if 'Withholding' in calc and callable(calc['Withholding']):
+                    withholding = safe_call(calc['Withholding'], fields, filing_status, combined_income)
+            except Exception as e:
+                logger.exception(f"⚠️ Error calculating withholding for {form.get('Form', '')}: {e}")
+            form['Income'] = income
+            form['Withholding'] = withholding
+            years_data[year].append(form)
+            all_forms.append((year, cat, income, withholding))
+    # --- Build summary using calculated values ---
+    summary = {
+        'total_years': len(years_data),
+        'years_analyzed': list(years_data.keys()),
+        'total_forms': sum(len(forms) for forms in years_data.values()),
+        'by_year': {},
+        'overall_totals': {
+            'total_se_income': 0.0,
+            'total_non_se_income': 0.0,
+            'total_other_income': 0.0,
+            'total_income': 0.0,
+            'estimated_agi': 0.0
+        }
     }
-    if include_tps_analysis:
-        logger.info("🔍 Generating TP/S analysis...")
-        tps_analysis = TPSParser.generate_tps_analysis_summary(
-            wi_data=all_data,
-            filing_status=filing_status
-        )
-        final_output['tps_analysis'] = tps_analysis
-        logger.info("✅ TP/S analysis added to output")
-    logger.info("✅ Enhanced WI parsing completed with summary")
+    for year, forms in years_data.items():
+        se_income = 0.0
+        se_withholding = 0.0
+        non_se_income = 0.0
+        non_se_withholding = 0.0
+        other_income = 0.0
+        other_withholding = 0.0
+        for form in forms:
+            cat = form.get('Category', 'Other')
+            inc = form.get('Income', 0.0)
+            wh = form.get('Withholding', 0.0)
+            if cat == 'SE':
+                se_income += inc
+                se_withholding += wh
+            elif cat == 'Non-SE':
+                non_se_income += inc
+                non_se_withholding += wh
+            else:
+                other_income += inc
+                other_withholding += wh
+        total_income = se_income + non_se_income + other_income
+        total_withholding = se_withholding + non_se_withholding + other_withholding
+        summary['by_year'][year] = {
+            'number_of_forms': len(forms),
+            'se_income': se_income,
+            'se_withholding': se_withholding,
+            'non_se_income': non_se_income,
+            'non_se_withholding': non_se_withholding,
+            'other_income': other_income,
+            'other_withholding': other_withholding,
+            'total_income': total_income,
+            'total_withholding': total_withholding,
+            'estimated_agi': total_income
+        }
+        summary['overall_totals']['total_se_income'] += se_income
+        summary['overall_totals']['total_non_se_income'] += non_se_income
+        summary['overall_totals']['total_other_income'] += other_income
+        summary['overall_totals']['total_income'] += total_income
+        summary['overall_totals']['estimated_agi'] += total_income
+    logger.info(f"[DEBUG] years_data: {json.dumps(years_data, indent=2, default=str)[:1000]}")
+    logger.info(f"[DEBUG] final_output: {{'summary': {json.dumps(summary, indent=2, default=str)[:1000]}, 'years_data': ...}}")
+    final_output = {'summary': summary, 'years_data': years_data}
     return final_output
 
 def fetch_ti_file_grid(case_id: str, cookies: dict) -> list:
@@ -668,10 +795,16 @@ def download_ti_pdf(case_doc_id: str, case_id: str, cookies: dict) -> bytes:
     }
     try:
         logger.info(f"📡 Sending GET request to download TI PDF: {url}")
-        response = httpx.get(url, headers=headers, timeout=30, follow_redirects=False)
+        response = httpx.get(url, headers=headers, timeout=30, follow_redirects=True)
+        
+        logger.info(f"📊 TI PDF download response status: {response.status_code}")
+        logger.info(f"📊 TI PDF download response headers: {dict(response.headers)}")
+        
         response.raise_for_status()
-        logger.info(f"✅ Successfully downloaded TI PDF. Size: {len(response.content)} bytes")
-        return response.content
+        
+        content = response.content
+        logger.info(f"✅ Successfully downloaded TI PDF. Size: {len(content)} bytes")
+        return content
     except httpx.HTTPStatusError as e:
         logger.error(f"❌ HTTP error {e.response.status_code}: {e.response.text}")
         raise Exception(f"HTTP error {e.response.status_code}: {e.response.text}")
@@ -821,78 +954,24 @@ def calculate_field_confidence(match, expected_patterns=None):
         confidence -= 0.1
     return min(1.0, max(0.0, confidence))
 
-def parse_transcript_scoped(text, file_name):
-    """
-    Parse a WI transcript with form-scoped regex extraction and confidence scoring.
-    Returns a dict matching the required output structure.
-    """
-    metadata = extract_file_metadata(text)
-    tracking_number = metadata['tracking_number']
-    tax_year = metadata['tax_year']
-    form_blocks = extract_form_blocks(text)
-    forms = []
-    total_extractions = 0
-    successful_extractions = 0
-    confidence_sum = 0.0
-    for block in form_blocks:
-        form_type = block['form_type']
-        block_text = block['content']
-        block_lines = block_text.splitlines()
-        block_text_length = len(block_text)
-        # Find the canonical form name in form_patterns
-        canonical_form = None
-        for k, v in form_patterns.items():
-            if re.search(v['pattern'], form_type, re.IGNORECASE):
-                canonical_form = k
-                break
-        if not canonical_form:
-            continue
-        pattern_info = form_patterns[canonical_form]
-        fields = []
-        field_patterns = pattern_info.get('fields', {})
-        for field_name, regex in field_patterns.items():
-            if not regex:
-                continue
-            # Search for the field in the block, line by line for source_line
-            found = False
-            for line in block_lines:
-                m = re.search(regex, line, re.IGNORECASE)
-                if m:
-                    value = m.group(1).replace(',', '').replace('$', '').strip()
-                    confidence = calculate_field_confidence(m.group(1))
-                    fields.append({
-                        'name': field_name.lower().replace(' ', '_'),
-                        'value': value,
-                        'source_line': line.strip(),
-                        'confidence_score': round(confidence, 2),
-                        'pattern_used': f"{canonical_form}_{field_name}_pattern",
-                        'extraction_method': 'regex_scoped'
-                    })
-                    confidence_sum += confidence
-                    successful_extractions += 1
-                    total_extractions += 1
-                    found = True
-                    break
-            if not found:
-                total_extractions += 1
-        form_confidence = (confidence_sum / successful_extractions) if successful_extractions else 0.0
-        forms.append({
-            'form_type': form_type,
-            'form_confidence': round(form_confidence, 2),
-            'block_text_length': block_text_length,
-            'fields': fields
-        })
-    overall_confidence = (confidence_sum / successful_extractions) if successful_extractions else 0.0
-    result = {
-        'file_name': file_name,
-        'tracking_number': tracking_number,
-        'tax_year': tax_year,
-        'parsing_metadata': {
-            'total_forms_found': len(forms),
-            'successful_extractions': successful_extractions,
-            'total_attempted_extractions': total_extractions,
-            'overall_confidence': round(overall_confidence, 2)
-        },
-        'forms': forms
-    }
-    return result
+def safe_call(fn, *args):
+    sig = inspect.signature(fn)
+    n = len(sig.parameters)
+    return fn(*args[:n])
+
+# Add a unit test at the bottom or in your test suite
+if __name__ == "__main__":
+    # Quick unit test for 1099-INT income calculation
+    test_fields = {'Interest': 1000, 'Interest Forfeiture': 200, 'Federal Withholding': 0}
+    calc = form_patterns['1099-INT']['calculation']
+    income = safe_call(calc['Income'], test_fields)
+    assert income == 800, f"Expected 800, got {income}"
+    print("✅ 1099-INT income calculation test passed.")
+
+    # Unit test for a two-argument lambda
+    def dummy_two_arg(fields, extra):
+        return float(fields.get('A', 0)) + float(extra)
+    test_fields2 = {'A': 5}
+    result2 = safe_call(dummy_two_arg, test_fields2, 7)
+    assert result2 == 12, f"Expected 12, got {result2}"
+    print("✅ safe_call handles two-argument lambda test passed.")

@@ -2,7 +2,8 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes, case_data_routes
+from app.routes import auth, health, income_comparison, transcript_routes, analysis_routes, case_management_routes, tax_investigation_routes, tax_investigation_routes_new, closing_letters_routes, batch_routes, client_profile, irs_standards_routes, disposable_income_routes, test_routes, pattern_learning_routes, enhanced_analysis_routes, case_data_routes
+from app.routes.analysis_wi_debug import debug_router
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +58,7 @@ app.include_router(income_comparison.router, prefix="/income-comparison", tags=[
 app.include_router(transcript_routes.router, prefix="/transcripts", tags=["Transcripts"])
 app.include_router(analysis_routes.router, prefix="/analysis", tags=["Analysis"])
 app.include_router(case_management_routes.router, prefix="/case-management", tags=["Case Management"])
+app.include_router(tax_investigation_routes.router, prefix="/tax-investigation", tags=["Tax Investigation"])
 app.include_router(tax_investigation_routes_new.router, prefix="/tax-investigation", tags=["Tax Investigation"])
 app.include_router(closing_letters_routes.router, prefix="/closing-letters", tags=["Closing Letters"])
 app.include_router(batch_routes.router, prefix="/batch", tags=["Batch Processing"])
@@ -66,6 +68,7 @@ app.include_router(disposable_income_routes.router, prefix="/disposable-income",
 app.include_router(test_routes.router, prefix="/test", tags=["Test"])
 app.include_router(pattern_learning_routes.router, prefix="/pattern-learning", tags=["Pattern Learning"])
 app.include_router(enhanced_analysis_routes.router, prefix="/analysis", tags=["Analysis"])
+app.include_router(debug_router)
 
 app.include_router(case_data_routes.router, prefix="/case-data", tags=["Case Data"])
 

@@ -146,3 +146,34 @@ def compare_tax_investigation_data(case_id: str):
     except Exception as e:
         logger.error(f"❌ Error comparing tax investigation data for case_id {case_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 
+
+@router.get("/ti-sheet/{case_id}", tags=["Tax Investigation"], summary="Get structured TI sheet data", description="Parse and return structured Tax Investigation (TI) sheet data for a case.")
+def get_ti_sheet(case_id: str):
+    """
+    Get structured TI sheet data for a case by parsing the raw TI text using the enhanced, version-aware parser.
+    """
+    from app.utils.ti_parser import EnhancedTIParser
+    from app.services.wi_service import fetch_ti_file_grid, download_ti_pdf, extract_text_from_pdf
+    logger.info(f"🔍 Received TI sheet request for case_id: {case_id}")
+    if not cookies_exist():
+        logger.error("❌ Authentication required - no cookies found")
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    cookies = get_cookies()
+    try:
+        ti_files = fetch_ti_file_grid(case_id, cookies)
+        if not ti_files:
+            raise HTTPException(status_code=404, detail="No TI files found for this case.")
+        ti_file = ti_files[0]
+        pdf_bytes = download_ti_pdf(ti_file["CaseDocumentID"], case_id, cookies)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="TI PDF file not found or empty.")
+        raw_text = extract_text_from_pdf(pdf_bytes)
+        if not raw_text:
+            raise HTTPException(status_code=500, detail="Could not extract text from TI PDF.")
+        structured = EnhancedTIParser.parse_ti_text_enhanced(raw_text, filename=ti_file["FileName"])
+        return structured
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting TI sheet for case_id {case_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}") 

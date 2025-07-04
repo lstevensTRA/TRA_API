@@ -64,12 +64,17 @@ async def logiqs_login_async(username: str, password: str) -> dict:
             # Log cookie names for debugging
             cookie_names = [cookie['name'] for cookie in cookies]
             logger.info(f"🍪 Cookie names: {cookie_names}")
-            
+
+            # Capture the user-agent from the browser context
+            user_agent = await page.evaluate("() => navigator.userAgent")
+            logger.info(f"🕵️ User-Agent used for login: {user_agent}")
+
             logger.info("💾 Saving cookies to file...")
             save_cookies({
                 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
                 'url': LOGIQS_URL,
-                'cookies': cookies
+                'cookies': cookies,
+                'user_agent': user_agent
             })
             logger.info(f"💾 Cookies saved to: {COOKIES_FILE}")
             

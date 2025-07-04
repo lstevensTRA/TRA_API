@@ -37,6 +37,13 @@ def get_cookies():
         logger.debug(f"🍪 Cookie data keys: {list(cookies_data.keys()) if isinstance(cookies_data, dict) else 'Not a dict'}")
         if isinstance(cookies_data, dict) and 'cookies' in cookies_data:
             logger.debug(f"🍪 Number of cookies: {len(cookies_data['cookies'])}")
+        
+        # Log user-agent if present
+        if isinstance(cookies_data, dict) and 'user_agent' in cookies_data:
+            logger.info(f"🕵️ Retrieved user-agent: {cookies_data['user_agent']}")
+        else:
+            logger.warning("⚠️ No user-agent found in cookies file")
+        
         return cookies_data
     except Exception as e:
         logger.error(f"❌ Error loading cookies: {str(e)}")
@@ -47,6 +54,12 @@ def save_cookies(cookies):
     logger.debug(f"🍪 Cookie data keys: {list(cookies.keys()) if isinstance(cookies, dict) else 'Not a dict'}")
     if isinstance(cookies, dict) and 'cookies' in cookies:
         logger.debug(f"🍪 Number of cookies to save: {len(cookies['cookies'])}")
+    
+    # Log user-agent if present
+    if isinstance(cookies, dict) and 'user_agent' in cookies:
+        logger.info(f"🕵️ Saving user-agent: {cookies['user_agent']}")
+    else:
+        logger.warning("⚠️ No user-agent found in cookies data")
     
     try:
         with open(COOKIES_FILE, "w") as f:
